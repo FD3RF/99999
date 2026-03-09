@@ -1,4 +1,0 @@
-# System packages for Streamlit Cloud
-# Only needed if using audio features, can be removed
-
-# Leave empty for basic deployment
