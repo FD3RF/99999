@@ -134,12 +134,15 @@ def get_kline_cached(symbol: str, interval: str = "5min", limit: int = 200) -> p
         if not raw_data:
             return pd.DataFrame()
         
-        # CoinEx 返回格式: [时间, 开, 高, 低, 收, 成交量]
-        df = pd.DataFrame(raw_data, columns=["time", "open", "high", "low", "close", "volume"])
+        # CoinEx 返回格式: [时间, 开, 收, 高, 低, 成交量, 成交额]
+        df = pd.DataFrame(raw_data, columns=["time", "open", "close", "high", "low", "volume", "amount"])
         
         # 类型转换（向量化操作）
-        numeric_cols = ["open", "high", "low", "close", "volume"]
+        numeric_cols = ["open", "high", "low", "close", "volume", "amount"]
         df[numeric_cols] = df[numeric_cols].astype(float)
+        
+        # 重新排列列顺序为标准格式
+        df = df[["time", "open", "high", "low", "close", "volume"]]
         
         # 时间处理
         df["time"] = pd.to_datetime(df["time"], unit="s")
