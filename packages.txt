@@ -1,8 +1,4 @@
-# 系统依赖（用于 Streamlit Cloud）
-# 如果需要语音播报等功能，可以添加系统包
+# System packages for Streamlit Cloud
+# Only needed if using audio features, can be removed
 
-# 基础系统包（可选）
-ffmpeg
-espeak
-
-# 如果不需要这些功能，可以删除此文件
+# Leave empty for basic deployment
