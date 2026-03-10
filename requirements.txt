@@ -5,5 +5,8 @@ numpy>=1.24.0
 requests>=2.31.0
 plotly>=5.17.0
 streamlit-autorefresh>=1.0.0
-\"openai>=1.0.0\" 
-\"\" 
+
+# AI functionality
+openai>=1.0.0
+
+# Note: pyttsx3 is Windows-only and not needed for cloud deployment

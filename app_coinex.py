@@ -10,11 +10,15 @@ import numpy as np
 from streamlit_autorefresh import st_autorefresh
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-try:
-    import pyttsx3
-    TTS_AVAILABLE = True
-except:
-    TTS_AVAILABLE = False
+
+# 语音播报仅在Windows环境可用
+TTS_AVAILABLE = False
+if not st.secrets.get("CLOUD_DEPLOYMENT", False):
+    try:
+        import pyttsx3
+        TTS_AVAILABLE = True
+    except:
+        TTS_AVAILABLE = False
 
 # ========== 1. 页面配置 ==========
 st.set_page_config(
@@ -297,8 +301,9 @@ def calculate_support_resistance(df):
 # ========== 7. 语音播报 ==========
 def voice_alert(message):
     """语音播报提醒"""
-    if TTS_AVAILABLE:
+    if TTS_AVAILABLE and not st.secrets.get("CLOUD_DEPLOYMENT", False):
         try:
+            import pyttsx3
             engine = pyttsx3.init()
             engine.say(message)
             engine.runAndWait()

@@ -54,3 +54,4 @@ desktop.ini
 # Streamlit
 .streamlit/*.toml
 !.streamlit/config.toml
+!.streamlit/cloud.toml
