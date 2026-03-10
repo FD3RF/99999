@@ -6,9 +6,15 @@ import time
 import datetime
 import hashlib
 import hmac
+import numpy as np
 from streamlit_autorefresh import st_autorefresh
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+try:
+    import pyttsx3
+    TTS_AVAILABLE = True
+except:
+    TTS_AVAILABLE = False
 
 # ========== 1. 页面配置 ==========
 st.set_page_config(
@@ -256,34 +262,99 @@ def get_orderbook_analysis(symbol: str, limit: int = 20, wall_multiplier: float 
     except Exception as e:
         return {**empty_result, "description": f"获取失败: {str(e)}", "status": "ERROR"}
 
-# ========== 6. AI 分析 (快速版) ==========
+# ========== 6. 支撑阻力计算 ==========
+def calculate_support_resistance(df):
+    """计算支撑位和阻力位"""
+    try:
+        if len(df) < 5:
+            return {"support": "数据不足", "resistance": "数据不足"}
+        
+        # 计算最近的高点和低点
+        recent_high = df['high'].tail(20).max()
+        recent_low = df['low'].tail(20).min()
+        
+        # 计算支撑位（最近的低点）
+        support = recent_low
+        
+        # 计算阻力位（最近的高点）
+        resistance = recent_high
+        
+        # 计算当前价格相对于支撑阻力的位置
+        current_price = df['close'].iloc[-1]
+        
+        # 判断支撑阻力强度
+        support_strength = "强" if current_price - support > (resistance - support) * 0.3 else "弱"
+        resistance_strength = "强" if resistance - current_price > (resistance - support) * 0.3 else "弱"
+        
+        return {
+            "support": f"{support:.2f} ({support_strength})",
+            "resistance": f"{resistance:.2f} ({resistance_strength})",
+            "current": current_price
+        }
+    except Exception as e:
+        return {"support": "计算错误", "resistance": "计算错误", "current": 0}
+
+# ========== 7. 语音播报 ==========
+def voice_alert(message):
+    """语音播报提醒"""
+    if TTS_AVAILABLE:
+        try:
+            engine = pyttsx3.init()
+            engine.say(message)
+            engine.runAndWait()
+            return True
+        except:
+            return False
+    return False
+
+# ========== 8. AI 分析 (快速版) ==========
 def get_ai_analysis_fast(prompt: str) -> str:
     """快速 AI 分析 - 使用 1.5B 模型"""
     try:
-        resp = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "deepseek-r1:1.5b",
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 100  # 限制输出长度
-                }
-            },
-            timeout=30
-        )
+        # 尝试使用在线 DeepSeek API
+        api_key = st.secrets.get("DEEPSEEK_API_KEY", "")
         
-        if resp.status_code == 200:
-            return resp.json().get("response", "AI响应为空")
-        return "AI服务错误"
-        
-    except requests.exceptions.Timeout:
-        return "⏱️ AI响应超时（CPU运行较慢）"
+        if api_key:
+            # 使用 DeepSeek API
+            import openai
+            client = openai.OpenAI(
+                api_key=api_key,
+                base_url="https://api.deepseek.com"
+            )
+            
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=150
+            )
+            
+            return response.choices[0].message.content
+        else:
+            # 尝试本地 Ollama
+            resp = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "deepseek-r1:1.5b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.3,
+                        "num_predict": 100
+                    }
+                },
+                timeout=30
+            )
+            
+            if resp.status_code == 200:
+                return resp.json().get("response", "AI响应为空")
+            else:
+                return "⚠️ AI服务未配置\n\n请在 .streamlit/secrets.toml 中添加：\nDEEPSEEK_API_KEY = \"your_key\""
+                
     except requests.exceptions.ConnectionError:
-        return "❌ AI服务未启动\n\n启动方法: `ollama serve`"
+        return "⚠️ AI服务未启动\n\n解决方案：\n1. 配置 DeepSeek API Key（推荐）\n2. 或运行: ollama serve"
     except Exception as e:
-        return f"AI分析失败: {str(e)}"
+        return f"⚠️ AI分析失败: {str(e)}"
 
 # ========== 7. 主程序 ==========
 def main():
@@ -326,7 +397,10 @@ def main():
     # 2. 获取订单簿分析
     ob_data = get_orderbook_analysis(SYMBOL, 20)
     
-    # 3. 计算状态
+    # 3. 计算支撑阻力
+    support_resistance = calculate_support_resistance(df)
+    
+    # 4. 计算状态
     last = df.iloc[-1]
     price = last['close']
     vol_ratio = last['vol_ratio']
@@ -352,10 +426,14 @@ def main():
         
         # K线图
         fig = go.Figure()
+        # K线图（绿色上涨，红色下跌 - 国际标准）
         fig.add_trace(go.Candlestick(
             x=df['time'], open=df['open'], high=df['high'], 
             low=df['low'], close=df['close'], name='K线',
-            increasing_line_color='red', decreasing_line_color='green'
+            increasing_line_color='green',    # 涨 - 绿色
+            decreasing_line_color='red',     # 跌 - 红色
+            increasing_fillcolor='green',
+            decreasing_fillcolor='red'
         ))
         fig.add_trace(go.Scatter(
             x=df['time'], y=df['ma20'], 
@@ -386,7 +464,20 @@ def main():
                   delta="多头优势" if ob_data['imbalance'] > 0.1 else "空头优势")
         c4.metric("市场情绪", ob_data['status'], ob_data['description'].split()[-1])
         
+        # 支撑阻力卡片
+        c5, c6 = st.columns(2)
+        c5.metric("支撑位", support_resistance["support"])
+        c6.metric("阻力位", support_resistance["resistance"])
+        
         st.info(f"**盘口详情**: {ob_data['description']}")
+        
+        # 语音播报（仅在有重大变化时）
+        if len(signals) > 0 and abs(ob_data['imbalance']) > 0.3:
+            alert_message = f"ETHUSDT 价格 {price:.2f}，{signals[0]}"
+            if voice_alert(alert_message):
+                st.success("🔊 语音播报已发送")
+            else:
+                st.info("💡 语音播报不可用（需要安装 pyttsx3）")
 
     with col_ai:
         st.subheader("🧠 AI 审计中心")
