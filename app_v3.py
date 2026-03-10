@@ -12,6 +12,28 @@ from streamlit_autorefresh import st_autorefresh
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# 导入高级信号模块
+try:
+    from advanced_signals import (
+        detect_accumulation,
+        whale_pump,
+        crash_warning,
+        multi_tf_resonance,
+        volume_price_mnemonics,
+        market_structure,
+        fake_breakout,
+        lstm_predict,
+        calculate_support_resistance,
+        ai_audit_ollama,
+        get_deepseek_audit,
+        comprehensive_signal_analysis,
+        speak_alert
+    )
+    ADVANCED_SIGNALS_AVAILABLE = True
+except ImportError:
+    ADVANCED_SIGNALS_AVAILABLE = False
+    print("⚠️ 高级信号模块未加载")
+
 # ========== 1. 页面配置 ==========
 st.set_page_config(
     page_title="ETHUSDT 全网节点量化系统", 
@@ -496,7 +518,16 @@ def main():
     vol_ratio = last.get('vol_ratio', 1.0)
     trend = "上涨" if last['ma20'] > last['ma50'] else "下跌" if len(df) > 1 else "未知"
     
-    # 信号生成
+    # ========== 高级信号分析 ==========
+    advanced_signals = None
+    if ADVANCED_SIGNALS_AVAILABLE and len(df) >= 20:
+        with st.spinner("🔍 执行高级信号分析..."):
+            try:
+                advanced_signals = comprehensive_signal_analysis(df, imbalance, walls)
+            except Exception as e:
+                st.warning(f"高级信号分析失败: {e}")
+    
+    # 基础信号生成
     signals = []
     if len(df) > 1:
         if last['close'] > last['ma20']: signals.append("价格站上MA20")
@@ -538,7 +569,20 @@ def main():
                 line=dict(color='blue', width=1), name='MA50'
             ))
             
-            if 'support' in walls:
+            # 高级支撑压力位
+            if advanced_signals and 'signals' in advanced_signals:
+                sr = advanced_signals['signals'].get('support_resistance', {})
+                if sr.get('nearest_support'):
+                    fig.add_hline(y=sr['nearest_support'][1], line_dash="dot", 
+                                  line_color="green", opacity=0.5,
+                                  annotation_text=f"支撑 {sr['nearest_support'][0]}", 
+                                  annotation_position="right")
+                if sr.get('nearest_resistance'):
+                    fig.add_hline(y=sr['nearest_resistance'][1], line_dash="dot", 
+                                  line_color="red", opacity=0.5,
+                                  annotation_text=f"压力 {sr['nearest_resistance'][0]}", 
+                                  annotation_position="right")
+            elif 'support' in walls:
                 fig.add_hline(y=walls['support'], line_dash="dash", line_color="green", 
                               annotation_text="支撑墙", annotation_position="right")
             if 'resistance' in walls:
@@ -556,43 +600,125 @@ def main():
         c1.metric("当前价格", f"{price:.2f}", f"{df['close'].iloc[-1] - df['close'].iloc[-2]:.2f}" if len(df) > 1 else "0.00")
         c2.metric("量比", f"{vol_ratio:.2f}", delta="放量" if vol_ratio > 1.5 else "缩量")
         c3.metric("盘口失衡", f"{imbalance:.2f}", delta="多头优势" if imbalance > 0.1 else "空头优势")
+        
+        # ========== 高级信号显示 ==========
+        if advanced_signals and 'signals' in advanced_signals:
+            st.markdown("---")
+            st.subheader("🎯 高级信号分析")
+            
+            # 综合建议
+            rec = advanced_signals['recommendation']
+            conf = advanced_signals['confidence']
+            if rec == "做多":
+                st.success(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+            elif rec == "做空":
+                st.error(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+            else:
+                st.info(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+            
+            # 各项指标
+            sig_data = advanced_signals['signals']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                # 主力吸筹
+                acc = sig_data.get('accumulation', {})
+                if acc.get('signal'):
+                    st.warning(f"🔍 **主力吸筹**: {acc['description']}")
+                
+                # 巨鲸拉升
+                whale = sig_data.get('whale_pump', {})
+                if whale.get('signal'):
+                    st.success(f"🐋 **巨鲸拉升**: {whale['description']}")
+                
+                # 急跌风险
+                crash = sig_data.get('crash_warning', {})
+                if crash.get('signal'):
+                    st.error(f"⚠️ **急跌风险**: {crash['description']} (风险等级: {crash.get('risk_level', '低')})")
+                
+                # LSTM预测
+                lstm = sig_data.get('lstm_prediction', {})
+                st.info(f"🤖 **LSTM预测**: {lstm.get('description', '分析中')}")
+            
+            with col2:
+                # 量价口诀
+                vp = sig_data.get('volume_price', {})
+                st.write(f"📖 **量价口诀**: {vp.get('signal', '无信号')}")
+                
+                # 市场结构
+                ms = sig_data.get('market_structure', {})
+                st.write(f"🏛️ **市场结构**: {ms.get('description', '分析中')}")
+                
+                # 假突破
+                fake = sig_data.get('fake_breakout', {})
+                if fake.get('signal'):
+                    st.warning(f"🎭 **假突破检测**: {fake.get('type', '检测到假突破')}")
+                
+                # 支撑压力
+                sr = sig_data.get('support_resistance', {})
+                st.write(f"📍 **支撑压力**: {sr.get('description', '计算中')}")
 
     with col_ai:
         st.subheader("🧠 AI 审计中心")
         
+        # 显示基础信号
         if signals:
             st.write("**当前触发信号**:")
             st.write(", ".join([f"`{s}`" for s in signals]))
         else:
             st.write("**当前触发信号**: 无明确信号")
+        
+        # 显示共振判断
+        st.write(f"**共振状态**: `{resonance}`")
+        
+        # 显示高级信号摘要
+        if advanced_signals:
+            st.markdown("---")
+            st.markdown(f"**综合评分**:")
+            st.write(f"- 做多得分: `{advanced_signals['bullish_score']:.0f}`")
+            st.write(f"- 做空得分: `{advanced_signals['bearish_score']:.0f}`")
             
         st.markdown("---")
         
-        with st.spinner("🕵️ AI分析中..."):
-            prompt = f"""
-            作为量化交易员，分析 ETHUSDT 数据：
-            价格: {price} 趋势: {trend} 量比: {vol_ratio:.2f} 盘口失衡: {imbalance:.2f}
-            信号: {', '.join(signals)} 共振状态: {resonance}
-            大单支撑: {walls.get('support', '无')} 压力: {walls.get('resistance', '无')}
-            
-            请给出：
-            1. 市场结构判断 (吸筹/派发/震荡)
-            2. 关键操作建议 (入场/止损/止盈)
-            3. 风险等级 (高/中/低)
-            """
+        # AI分析
+        with st.spinner("🕵️ AI深度分析中..."):
+            # 使用高级信号生成AI提示词
+            if ADVANCED_SIGNALS_AVAILABLE and advanced_signals:
+                prompt = ai_audit_ollama(df, imbalance)
+            else:
+                prompt = f"""
+                作为量化交易员，分析 ETHUSDT 数据：
+                价格: {price} 趋势: {trend} 量比: {vol_ratio:.2f} 盘口失衡: {imbalance:.2f}
+                信号: {', '.join(signals)} 共振状态: {resonance}
+                大单支撑: {walls.get('support', '无')} 压力: {walls.get('resistance', '无')}
+                
+                请给出：
+                1. 市场结构判断 (吸筹/派发/震荡)
+                2. 关键操作建议 (入场/止损/止盈)
+                3. 风险等级 (高/中/低)
+                """
             
             ai_report = get_ai_analysis(prompt)
             
             if "AI服务未启动" in ai_report:
                 st.warning(ai_report)
                 st.info("💡 备用建议：关注 MA20 支撑，结合量能操作")
+                
+                # 使用高级信号给出建议
+                if advanced_signals:
+                    st.info(f"📊 **智能建议**: {advanced_signals['summary']}")
             else:
                 st.markdown(ai_report)
                 
-                if "多头共振" in resonance and vol_ratio > 2.0:
-                    speak("警告，检测到多头共振且成交量放大")
-                elif "空头共振" in resonance:
-                    speak("警告，检测到空头共振，注意风险")
+                # 语音播报重要信号
+                if ADVANCED_SIGNALS_AVAILABLE and advanced_signals:
+                    rec = advanced_signals['recommendation']
+                    if rec in ["做多", "做空"] and advanced_signals['confidence'] > 70:
+                        speak_alert(f"警告，检测到{rec}信号，置信度{advanced_signals['confidence']:.0f}%")
+                    elif "多头共振" in resonance and vol_ratio > 2.0:
+                        speak_alert("警告，检测到多头共振且成交量放大")
+                    elif "空头共振" in resonance:
+                        speak_alert("警告，检测到空头共振，注意风险")
 
 if __name__ == "__main__":
     main()
