@@ -721,7 +721,7 @@ def main():
                     
                     # 主力吸筹播报
                     acc = sig_data.get('accumulation', {})
-                    if acc.get('signal') and acc.get('strength') == '强':
+                    if acc.get('signal') and acc.get('strength', 0) >= 70:
                         speak_alert(f"主力吸筹信号，{acc.get('description', '关注做多机会')}")
                     
                     # 多头共振播报
