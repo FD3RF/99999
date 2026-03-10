@@ -347,10 +347,14 @@ def main():
     with col_chart:
         st.subheader("实时行情 (5m)")
         fig = go.Figure()
+        # K线（绿色上涨，红色下跌 - 中国标准）
         fig.add_trace(go.Candlestick(
             x=df['time'], open=df['open'], high=df['high'], 
             low=df['low'], close=df['close'], name='K线',
-            increasing_line_color='red', decreasing_line_color='green'
+            increasing_line_color='green',    # 上涨 - 绿色
+            decreasing_line_color='red',     # 下跌 - 红色
+            increasing_fillcolor='green',
+            decreasing_fillcolor='red'
         ))
         fig.add_trace(go.Scatter(
             x=df['time'], y=df['ma20'], 

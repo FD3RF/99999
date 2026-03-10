@@ -1,4 +1,4 @@
-# 敏感配置文件（包含 API Key）
+# Streamlit secrets - 包含API密钥等敏感信息
 .streamlit/secrets.toml
 .streamlit/secrets_multi.toml
 
@@ -24,11 +24,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# 虚拟环境
+# Virtual environments
 venv/
 ENV/
 env/
-.venv
 
 # IDE
 .vscode/
@@ -37,21 +36,17 @@ env/
 *.swo
 *~
 
-# 日志文件
-*.log
-logs/
-
-# 临时文件
-*.tmp
-*.temp
-.cache/
-
-# 操作系统
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Streamlit
-.streamlit/*.toml
-!.streamlit/config.toml
-!.streamlit/cloud.toml
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.bak
