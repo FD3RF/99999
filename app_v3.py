@@ -394,18 +394,6 @@ def get_client():
     return MultiExchangeClient(proxies=PROXIES if PROXIES else None)
 
 # ========== 5. 核心功能 ==========
-def speak(text):
-    def _speak():
-        try:
-            if os.name == "nt":
-                import pyttsx3
-                engine = pyttsx3.init()
-                engine.setProperty('rate', 150)
-                engine.say(text)
-                engine.runAndWait()
-        except: pass
-    threading.Thread(target=_speak, daemon=True).start()
-
 def get_ai_analysis(prompt):
     try:
         resp = requests.post(
@@ -710,15 +698,39 @@ def main():
             else:
                 st.markdown(ai_report)
                 
-                # 语音播报重要信号
+                # 语音播报重要信号（精准触发）
                 if ADVANCED_SIGNALS_AVAILABLE and advanced_signals:
                     rec = advanced_signals['recommendation']
-                    if rec in ["做多", "做空"] and advanced_signals['confidence'] > 70:
-                        speak_alert(f"警告，检测到{rec}信号，置信度{advanced_signals['confidence']:.0f}%")
-                    elif "多头共振" in resonance and vol_ratio > 2.0:
-                        speak_alert("警告，检测到多头共振且成交量放大")
+                    bull_score = advanced_signals['bullish_score']
+                    bear_score = advanced_signals['bearish_score']
+                    sig_data = advanced_signals.get('signals', {})
+                    
+                    # 高置信度信号播报
+                    if rec in ["做多", "做空"] and advanced_signals['confidence'] >= 75:
+                        speak_alert(f"重要提醒，{rec}信号确认，置信度{advanced_signals['confidence']:.0f}%")
+                    
+                    # 巨鲸拉升播报
+                    whale = sig_data.get('whale_pump', {})
+                    if whale.get('signal'):
+                        speak_alert(f"巨鲸拉升检测，{whale.get('description', '大资金进场')}")
+                    
+                    # 急跌风险播报
+                    crash = sig_data.get('crash_warning', {})
+                    if crash.get('signal') and crash.get('risk_level') == '高':
+                        speak_alert(f"危险，急跌风险高，{crash.get('description', '注意风险')}")
+                    
+                    # 主力吸筹播报
+                    acc = sig_data.get('accumulation', {})
+                    if acc.get('signal') and acc.get('strength') == '强':
+                        speak_alert(f"主力吸筹信号，{acc.get('description', '关注做多机会')}")
+                    
+                    # 多头共振播报
+                    if "多头共振" in resonance and vol_ratio > 1.5:
+                        speak_alert(f"多头共振确认，量比{vol_ratio:.1f}，关注做多机会")
+                    
+                    # 空头共振播报  
                     elif "空头共振" in resonance:
-                        speak_alert("警告，检测到空头共振，注意风险")
+                        speak_alert("空头共振，注意风险控制")
 
 if __name__ == "__main__":
     main()

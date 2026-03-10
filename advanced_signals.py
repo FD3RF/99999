@@ -263,83 +263,188 @@ def multi_tf_resonance(df_dict: Dict[str, pd.DataFrame]) -> Dict:
     }
 
 
-# ========== 5. 口诀策略信号 ==========
+# ========== 5. 口诀策略信号（完整版）==========
 def volume_price_mnemonics(df: pd.DataFrame) -> Dict:
     """
-    量价口诀策略信号
-    做多信号：
-    - 缩量回踩 / 放量突破 / 放量急跌（抄底） / 缩量横盘
+    量价口诀策略信号（完整口诀版）
     
-    做空信号：
-    - 缩量反弹 / 放量下跌 / 放量急涨（诱多） / 缩量横盘
+    【做多口诀】
+    1. 缩量回踩，低点不破 → 准备动手
+    2. 放量起涨，突破前高 → 直接开多
+    3. 放量急跌，底部不破 → 假跌真买
+    4. 缩量横盘，低点托住 → 埋伏等待上涨
+    
+    【做空口诀】
+    1. 缩量反弹，高点不破 → 准备动手
+    2. 放量下跌，跌破前低 → 直接开空
+    3. 放量急涨，顶部不破 → 假涨真空
+    4. 缩量横盘，高点压住 → 埋伏等待下跌
     """
-    if len(df) < 20:
-        return {"signal": "观望", "direction": None, "strength": 0, "description": "数据不足"}
+    if len(df) < 30:
+        return {
+            "signal": "观望", 
+            "direction": None, 
+            "strength": 0, 
+            "description": "数据不足",
+            "mnemonic": None
+        }
     
     signals = []
     direction = None
     strength = 0
+    mnemonic = None  # 匹配的口诀
     
-    # 计算量比
-    vol_ma = df['volume'].rolling(20).mean().iloc[-1]
+    # ========== 基础指标计算 ==========
+    # 成交量指标
+    vol_ma_20 = df['volume'].rolling(20).mean().iloc[-1]
     current_vol = df['volume'].iloc[-1]
-    vol_ratio = current_vol / vol_ma if vol_ma > 0 else 1
+    vol_ratio = current_vol / vol_ma_20 if vol_ma_20 > 0 else 1
     
     # 价格变化
-    price_change = (df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2] * 100 if len(df) > 1 else 0
+    current_price = df['close'].iloc[-1]
+    prev_price = df['close'].iloc[-2] if len(df) > 1 else current_price
+    price_change_pct = (current_price - prev_price) / prev_price * 100 if prev_price > 0 else 0
     
-    # 价格位置
+    # 关键价位
+    recent_high_20 = df['high'].tail(20).max()
+    recent_low_20 = df['low'].tail(20).min()
+    recent_high_50 = df['high'].tail(50).max() if len(df) >= 50 else recent_high_20
+    recent_low_50 = df['low'].tail(50).min() if len(df) >= 50 else recent_low_20
+    
+    # 价格相对位置（50周期分位数）
     price_rank = df['close'].tail(50).rank().iloc[-1] / 50 if len(df) >= 50 else 0.5
     
-    # 1. 缩量回踩（做多）
-    if vol_ratio < 0.7 and price_change < 0 and price_rank > 0.5:
-        signals.append("缩量回踩 ✅做多")
-        direction = "做多"
-        strength += 30
+    # 支撑压力位（低点高点）
+    support_level = recent_low_20
+    resistance_level = recent_high_20
     
-    # 2. 放量突破（做多）
-    if vol_ratio > 1.5 and price_change > 0:
-        recent_high = df['high'].tail(20).max()
-        if df['close'].iloc[-1] >= recent_high * 0.99:
-            signals.append("放量突破 ✅做多")
+    # ========== 做多口诀判断 ==========
+    
+    # 【口诀1】缩量回踩，低点不破 → 准备动手
+    # 条件：成交量萎缩 + 价格小幅下跌 + 低点支撑不破
+    if vol_ratio < 0.7 and -2 < price_change_pct < 0:
+        # 检查低点是否不破
+        if current_price > support_level * 1.001:  # 价格在支撑位之上
+            # 检查是否有回踩动作（最近3根K线低点逐渐抬高或持平）
+            recent_lows = df['low'].tail(3).values
+            if len(recent_lows) >= 3 and recent_lows[-1] >= min(recent_lows) * 0.998:
+                signals.append("【口诀1】缩量回踩，低点不破 → 准备动手 ✅")
+                direction = "做多"
+                strength += 40
+                mnemonic = "缩量回踩"
+    
+    # 【口诀2】放量起涨，突破前高 → 直接开多
+    # 条件：成交量放大 + 价格上涨 + 突破前高
+    if vol_ratio > 1.5 and price_change_pct > 0.5:
+        # 检查是否突破前高
+        if current_price >= recent_high_20 * 0.995:
+            signals.append("【口诀2】放量起涨，突破前高 → 直接开多 ✅")
             direction = "做多"
-            strength += 35
+            strength += 45
+            mnemonic = "放量突破"
     
-    # 3. 放量急跌（抄底做多）
-    if vol_ratio > 2.0 and price_change < -2:
-        signals.append("放量急跌 ⚠️抄底机会")
-        direction = "抄底"
-        strength += 25
+    # 【口诀3】放量急跌，底部不破 → 假跌真买
+    # 条件：成交量放大 + 价格急跌 + 底部支撑不破
+    if vol_ratio > 2.0 and price_change_pct < -2:
+        # 检查底部是否不破（关键支撑位）
+        if current_price > recent_low_50 * 1.005:  # 价格在50周期低点之上
+            # 检查是否有下影线（反弹迹象）
+            current_low = df['low'].iloc[-1]
+            lower_wick = (current_price - current_low) / (df['high'].iloc[-1] - current_low + 0.0001)
+            if lower_wick > 0.4:  # 有明显下影线
+                signals.append("【口诀3】放量急跌，底部不破 → 假跌真买 ✅")
+                direction = "抄底做多"
+                strength += 35
+                mnemonic = "假跌真买"
     
-    # 4. 缩量横盘（关注突破）
-    if vol_ratio < 0.6 and abs(price_change) < 0.5:
-        signals.append("缩量横盘 🔍关注突破")
-        strength += 20
+    # 【口诀4】缩量横盘，低点托住 → 埋伏等待上涨
+    # 条件：成交量萎缩 + 价格横盘 + 低点支撑有效
+    if vol_ratio < 0.6 and abs(price_change_pct) < 0.5:
+        # 检查低点是否托住（连续多根K线低点接近支撑位）
+        recent_lows = df['low'].tail(5).values
+        if len(recent_lows) >= 5:
+            low_std = np.std(recent_lows) / np.mean(recent_lows)
+            if low_std < 0.01:  # 低点波动小（横盘）
+                # 检查低点在支撑位附近
+                avg_low = np.mean(recent_lows)
+                if abs(avg_low - support_level) / support_level < 0.02:
+                    signals.append("【口诀4】缩量横盘，低点托住 → 埋伏等待上涨 ✅")
+                    direction = "埋伏做多"
+                    strength += 30
+                    mnemonic = "缩量横盘"
     
-    # 5. 缩量反弹（做空）
-    if vol_ratio < 0.7 and price_change > 0 and price_rank < 0.5:
-        signals.append("缩量反弹 ❌做空")
-        direction = "做空"
-        strength += 30
+    # ========== 做空口诀判断 ==========
     
-    # 6. 放量下跌（做空）
-    if vol_ratio > 1.5 and price_change < -1:
-        signals.append("放量下跌 ❌做空")
-        direction = "做空"
-        strength += 35
+    # 【口诀5】缩量反弹，高点不破 → 准备动手
+    # 条件：成交量萎缩 + 价格反弹 + 高点压力不破
+    if vol_ratio < 0.7 and 0 < price_change_pct < 2:
+        # 检查高点是否不破
+        if current_price < resistance_level * 0.999:  # 价格在压力位之下
+            # 检查是否有反弹受阻（最近3根K线高点逐渐降低或持平）
+            recent_highs = df['high'].tail(3).values
+            if len(recent_highs) >= 3 and recent_highs[-1] <= max(recent_highs) * 1.002:
+                signals.append("【口诀5】缩量反弹，高点不破 → 准备动手 ❌")
+                direction = "做空"
+                strength += 40
+                mnemonic = "缩量反弹"
     
-    # 7. 放量急涨（诱多）
-    if vol_ratio > 2.5 and price_change > 3 and price_rank > 0.8:
-        signals.append("放量急涨 ⚠️诱多陷阱")
+    # 【口诀6】放量下跌，跌破前低 → 直接开空
+    # 条件：成交量放大 + 价格下跌 + 跌破前低
+    if vol_ratio > 1.5 and price_change_pct < -0.5:
+        # 检查是否跌破前低
+        if current_price <= recent_low_20 * 1.005:
+            signals.append("【口诀6】放量下跌，跌破前低 → 直接开空 ❌")
+            direction = "做空"
+            strength += 45
+            mnemonic = "放量破位"
+    
+    # 【口诀7】放量急涨，顶部不破 → 假涨真空
+    # 条件：成交量放大 + 价格急涨 + 顶部压力不破
+    if vol_ratio > 2.5 and price_change_pct > 3:
+        # 检查顶部是否不破（关键压力位）
+        if current_price < recent_high_50 * 0.995:  # 价格在50周期高点之下
+            # 检查是否有上影线（回落迹象）
+            current_high = df['high'].iloc[-1]
+            upper_wick = (current_high - current_price) / (current_high - df['low'].iloc[-1] + 0.0001)
+            if upper_wick > 0.4:  # 有明显上影线
+                signals.append("【口诀7】放量急涨，顶部不破 → 假涨真空 ❌")
+                direction = "观望/做空"
+                strength += 35
+                mnemonic = "假涨真空"
+    
+    # 【口诀8】缩量横盘，高点压住 → 埋伏等待下跌
+    # 条件：成交量萎缩 + 价格横盘 + 高点压力有效
+    if vol_ratio < 0.6 and abs(price_change_pct) < 0.5:
+        # 检查高点是否压住（连续多根K线高点接近压力位）
+        recent_highs = df['high'].tail(5).values
+        if len(recent_highs) >= 5:
+            high_std = np.std(recent_highs) / np.mean(recent_highs)
+            if high_std < 0.01:  # 高点波动小（横盘）
+                # 检查高点在压力位附近
+                avg_high = np.mean(recent_highs)
+                if abs(avg_high - resistance_level) / resistance_level < 0.02:
+                    signals.append("【口诀8】缩量横盘，高点压住 → 埋伏等待下跌 ❌")
+                    direction = "埋伏做空"
+                    strength += 30
+                    mnemonic = "横盘压顶"
+    
+    # ========== 综合判断 ==========
+    # 如果没有明确信号
+    if not signals:
+        signals.append("无明显口诀信号，观望为主")
         direction = "观望"
-        strength += 25
+        strength = 0
     
     return {
-        "signal": " | ".join(signals) if signals else "无明显信号",
+        "signal": " | ".join(signals),
         "direction": direction,
         "strength": min(strength, 100),
-        "vol_ratio": vol_ratio,
-        "description": " | ".join(signals) if signals else "观望"
+        "vol_ratio": round(vol_ratio, 2),
+        "price_change_pct": round(price_change_pct, 2),
+        "support_level": round(support_level, 2),
+        "resistance_level": round(resistance_level, 2),
+        "mnemonic": mnemonic,
+        "description": signals[0] if signals else "观望"
     }
 
 
