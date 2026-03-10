@@ -511,7 +511,7 @@ def main():
     if ADVANCED_SIGNALS_AVAILABLE and len(df) >= 20:
         with st.spinner("🔍 执行高级信号分析..."):
             try:
-                advanced_signals = comprehensive_signal_analysis(df, imbalance, walls)
+                advanced_signals = comprehensive_signal_analysis(df, order_imbalance=imbalance, walls=walls)
             except Exception as e:
                 st.warning(f"高级信号分析失败: {e}")
     
