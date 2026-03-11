@@ -441,14 +441,19 @@ def generate_ai_prompt_v2(df, advanced_signals):
     last = df.iloc[-1]
     sig = advanced_signals['signals']
     
+    # 安全获取EMA和VWAP数据
+    ema21_val = df['ema21'].iloc[-1] if 'ema21' in df.columns and not df['ema21'].empty else 'N/A'
+    ema200_val = df['ema200'].iloc[-1] if 'ema200' in df.columns and not df['ema200'].empty else 'N/A'
+    vwap_val = df['vwap'].iloc[-1] if 'vwap' in df.columns and not df['vwap'].empty else 'N/A'
+    
     prompt = f"""
 作为量化交易AI分析师，分析ETHUSDT当前市场状态：
 
 【价格数据】
 当前价格: {last['close']:.2f}
-EMA21: {df['ema21'].iloc[-1]:.2f if 'ema21' in df.columns else 'N/A'}
-EMA200: {df['ema200'].iloc[-1]:.2f if 'ema200' in df.columns else 'N/A'}
-VWAP: {df['vwap'].iloc[-1]:.2f if 'vwap' in df.columns else 'N/A'}
+EMA21: {ema21_val if ema21_val == 'N/A' else f'{ema21_val:.2f}'}
+EMA200: {ema200_val if ema200_val == 'N/A' else f'{ema200_val:.2f}'}
+VWAP: {vwap_val if vwap_val == 'N/A' else f'{vwap_val:.2f}'}
 量比: {last.get('vol_ratio', 1):.2f}
 
 【市场状态】
