@@ -665,6 +665,15 @@ def main():
             # 综合建议
             rec = advanced_signals['recommendation']
             conf = advanced_signals['confidence']
+            
+            # 语音播报重要信号（置信度>70%）
+            if conf >= 70:
+                alert_text = f"注意，ETHUSDT {rec}信号，置信度{conf:.0f}%"
+                try:
+                    speak_alert(alert_text)
+                except:
+                    pass  # 忽略语音播报错误
+            
             if rec == "做多":
                 st.success(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
             elif rec == "做空":
@@ -690,16 +699,31 @@ def main():
                 acc = sig_data.get('accumulation', {})
                 if acc.get('signal'):
                     st.warning(f"🔍 **主力吸筹**: {acc['description']}")
+                    # 语音播报主力吸筹
+                    try:
+                        speak_alert(f"检测到主力吸筹信号，{acc['description']}")
+                    except:
+                        pass
                 
                 # 巨鲸拉升
                 whale = sig_data.get('whale_pump', {})
                 if whale.get('signal'):
                     st.success(f"🐋 **巨鲸拉升**: {whale['description']}")
+                    # 语音播报巨鲸拉升
+                    try:
+                        speak_alert(f"巨鲸拉升信号，{whale['description']}")
+                    except:
+                        pass
                 
                 # 急跌风险
                 crash = sig_data.get('crash_warning', {})
                 if crash.get('signal'):
                     st.error(f"⚠️ **急跌风险**: {crash['description']} (风险:{crash.get('risk_level', '低')})")
+                    # 语音播报急跌风险
+                    try:
+                        speak_alert(f"警告，急跌风险，{crash['description']}")
+                    except:
+                        pass
             
             with col3:
                 # 量价口诀
