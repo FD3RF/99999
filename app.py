@@ -1096,6 +1096,7 @@ def main():
             risk = abs(price - sl) / price * 100
             reward = abs(tp - price) / price * 100
             rr = reward / risk if risk > 0 else 0
+            total_range = abs(tp - sl) / price * 100  # 完整区间波动
             
             p1, p2, p3 = st.columns(3)
             p1.metric("🎯 入场" if rec in ["做多", "做空"] else "📍 支撑", f"${price:.2f}" if rec in ["做多", "做空"] else f"${sl:.2f}")
@@ -1105,7 +1106,10 @@ def main():
             if rec in ["做多", "做空"]:
                 st.info(f"💰 盈亏比 **1:{rr:.1f}** | 建议仓位 **{min(2/risk, 50):.0f}%**")
             else:
-                st.info(f"📊 区间: **${sl:.2f} - ${tp:.2f}** | 波动空间 **{reward:.1f}%**")
+                # 显示完整区间和当前距离上下边界的百分比
+                dist_to_support = (price - sl) / price * 100 if price > sl else 0
+                dist_to_resist = (tp - price) / price * 100 if tp > price else 0
+                st.info(f"📊 区间波动 **{total_range:.1f}%** | 距支撑 **{dist_to_support:.1f}%** | 距压力 **{dist_to_resist:.1f}%**")
             
             # 语音播报（仅明确信号）
             if rec in ["做多", "做空"] and conf >= 70:
