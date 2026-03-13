@@ -47,6 +47,146 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ========== 深色主题样式 ==========
+st.markdown("""
+<style>
+    /* 全局深色背景 */
+    .stApp {
+        background-color: #0e1117 !important;
+        color: #fafafa !important;
+    }
+    
+    /* 侧边栏 */
+    section[data-testid="stSidebar"] {
+        background-color: #1a1a2e !important;
+    }
+    
+    /* 标题文字 */
+    h1, h2, h3, h4, h5, h6 {
+        color: #fafafa !important;
+    }
+    
+    /* Metric卡片 */
+    [data-testid="stMetric"] {
+        background-color: #1e1e2e !important;
+        border-radius: 10px;
+        padding: 15px;
+        border: 1px solid #2d2d3d;
+    }
+    [data-testid="stMetric"] label {
+        color: #9ca3af !important;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #fafafa !important;
+        font-size: 1.5rem !important;
+    }
+    
+    /* Info/Success/Warning/Error框 */
+    [data-testid="stAlert"] {
+        background-color: #1e1e2e !important;
+        border: 1px solid #3d3d4d !important;
+    }
+    [data-testid="stAlert"] p {
+        color: #fafafa !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #1e1e2e !important;
+        color: #fafafa !important;
+    }
+    .streamlit-expanderContent {
+        background-color: #1a1a2e !important;
+    }
+    
+    /* 按钮 */
+    .stButton button {
+        background-color: #2d2d3d !important;
+        color: #fafafa !important;
+        border: 1px solid #3d3d4d !important;
+    }
+    .stButton button:hover {
+        background-color: #3d3d4d !important;
+        border-color: #4d4d5d !important;
+    }
+    
+    /* 输入框 */
+    .stTextInput input, .stNumberInput input {
+        background-color: #1e1e2e !important;
+        color: #fafafa !important;
+        border-color: #3d3d4d !important;
+    }
+    
+    /* Selectbox */
+    .stSelectbox div[data-baseweb="select"] {
+        background-color: #1e1e2e !important;
+    }
+    
+    /* DataFrame/表格 */
+    .stDataFrame {
+        background-color: #1e1e2e !important;
+    }
+    table {
+        background-color: #1e1e2e !important;
+        color: #fafafa !important;
+    }
+    thead th {
+        background-color: #2d2d3d !important;
+        color: #fafafa !important;
+    }
+    tbody tr {
+        background-color: #1e1e2e !important;
+    }
+    tbody tr:hover {
+        background-color: #2d2d3d !important;
+    }
+    
+    /* 分隔线 */
+    hr {
+        border-color: #3d3d4d !important;
+    }
+    
+    /* 列容器 */
+    [data-testid="column"] {
+        background-color: transparent !important;
+    }
+    
+    /* Markdown文本 */
+    .stMarkdown p, .stMarkdown li {
+        color: #e5e5e5 !important;
+    }
+    
+    /* 成功/错误/警告颜色 */
+    .element-container .stSuccess {
+        background-color: rgba(34, 197, 94, 0.15) !important;
+        border-color: #22c55e !important;
+    }
+    .element-container .stError {
+        background-color: rgba(239, 68, 68, 0.15) !important;
+        border-color: #ef4444 !important;
+    }
+    .element-container .stWarning {
+        background-color: rgba(234, 179, 8, 0.15) !important;
+        border-color: #eab308 !important;
+    }
+    .element-container .stInfo {
+        background-color: rgba(59, 130, 246, 0.15) !important;
+        border-color: #3b82f6 !important;
+    }
+    
+    /* 代码块 */
+    code {
+        background-color: #2d2d3d !important;
+        color: #e5e5e5 !important;
+    }
+    
+    /* 图表容器背景 */
+    .plotly-chart {
+        background-color: transparent !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ========== 2. 代理配置 ==========
 PROXIES = {}
 if os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY'):
