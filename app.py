@@ -591,40 +591,77 @@ def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
             if idx < len(df):
                 row_data = df.iloc[idx]
                 price = row_data['close']
+                time_val = row_data['time']
                 
                 # 入场三角
                 if signal['direction'] == 'LONG':
                     marker_symbol = 'triangle-up'
                     marker_color = '#00FF00'
+                    y_position = price * 0.998  # 做多三角在K线下方
                 else:
                     marker_symbol = 'triangle-down'
                     marker_color = '#FF0000'
+                    y_position = price * 1.002  # 做空三角在K线上方
                 
-                # 根据置信度调整大小
-                marker_size = 15 if signal.get('confidence_level') == 'HIGH' else 12
+                # 根据置信度调整大小和样式
+                marker_size = 18 if signal.get('confidence_level') == 'HIGH' else 14
+                line_color = '#FFD700' if signal.get('confidence_level') == 'HIGH' else '#FFFFFF'
                 
                 fig.add_trace(go.Scatter(
-                    x=[row_data['time']], y=[price],
-                    mode='markers',
-                    marker=dict(symbol=marker_symbol, size=marker_size, 
-                               color=marker_color, line=dict(color='#FFD700', width=2)),
-                    name=f"入场-{signal['direction']}"
+                    x=[time_val], y=[y_position],
+                    mode='markers+text',
+                    marker=dict(
+                        symbol=marker_symbol, 
+                        size=marker_size, 
+                        color=marker_color, 
+                        line=dict(color=line_color, width=2)
+                    ),
+                    text=['入场' + ('做多' if signal['direction'] == 'LONG' else '做空')],
+                    textposition='bottom center' if signal['direction'] == 'LONG' else 'top center',
+                    textfont=dict(size=10, color=marker_color),
+                    name=f"入场-{signal['direction']}",
+                    showlegend=True
                 ), row=1, col=1)
                 
-                # 止损线
+                # 止损线（橙红色虚线 + 区域填充）
                 stop_loss = signal.get('stop_loss', price * 0.98)
-                fig.add_hline(y=stop_loss, line_dash="dash",
-                             line_color="#FF4500", opacity=0.7, line_width=1.5,
+                fig.add_hline(y=stop_loss, line_dash="dot",
+                             line_color="#FF4500", opacity=0.9, line_width=2,
                              annotation_text=f"止损 ${stop_loss:.2f}",
                              annotation_position="left",
+                             annotation_font=dict(size=11, color="#FF4500"),
                              row=1, col=1)
+                # 止损区域
+                if signal['direction'] == 'LONG':
+                    fig.add_hrect(y0=stop_loss * 0.998, y1=stop_loss,
+                                 fillcolor="#FF4500", opacity=0.15, line_width=0,
+                                 row=1, col=1)
                 
-                # 止盈线
+                # 止盈线（绿色虚线 + 区域填充）
                 take_profit = signal.get('take_profit', price * 1.02)
-                fig.add_hline(y=take_profit, line_dash="dash",
-                             line_color="#32CD32", opacity=0.7, line_width=1.5,
+                fig.add_hline(y=take_profit, line_dash="dot",
+                             line_color="#32CD32", opacity=0.9, line_width=2,
                              annotation_text=f"止盈 ${take_profit:.2f}",
                              annotation_position="left",
+                             annotation_font=dict(size=11, color="#32CD32"),
+                             row=1, col=1)
+                # 止盈区域
+                if signal['direction'] == 'LONG':
+                    fig.add_hrect(y0=take_profit, y1=take_profit * 1.002,
+                                 fillcolor="#32CD32", opacity=0.15, line_width=0,
+                                 row=1, col=1)
+                
+                # 半仓止盈线（虚线）
+                if signal['direction'] == 'LONG':
+                    half_profit = price + (take_profit - price) * 0.5
+                else:
+                    half_profit = price - (price - take_profit) * 0.5
+                    
+                fig.add_hline(y=half_profit, line_dash="dash",
+                             line_color="#FFD700", opacity=0.6, line_width=1,
+                             annotation_text=f"半仓 ${half_profit:.2f}",
+                             annotation_position="left",
+                             annotation_font=dict(size=9, color="#FFD700"),
                              row=1, col=1)
     
     # === 成交量柱状图 ===
@@ -810,15 +847,28 @@ def main():
     
     # 生成交易信号（如果有）
     trade_signals = []
-    if advanced_signals and advanced_signals.get('confidence', 0) >= 60:
+    if advanced_signals and advanced_signals.get('confidence', 0) >= 50:
         rec = advanced_signals['recommendation']
         if rec in ['做多', '做空']:
             sr = advanced_signals['signals'].get('support_resistance', {})
+            
+            # 安全获取止损止盈价格
+            nearest_support = sr.get('nearest_support')
+            nearest_resistance = sr.get('nearest_resistance')
+            
+            # 止损：做多用支撑，做空用阻力
+            if rec == '做多':
+                stop_loss = nearest_support[1] if nearest_support else price * 0.98
+                take_profit = nearest_resistance[1] if nearest_resistance else price * 1.02
+            else:
+                stop_loss = nearest_resistance[1] if nearest_resistance else price * 1.02
+                take_profit = nearest_support[1] if nearest_support else price * 0.98
+            
             trade_signals.append({
                 'direction': 'LONG' if rec == '做多' else 'SHORT',
                 'index': len(df) - 1,
-                'stop_loss': sr.get('nearest_support', (0, price * 0.98))[1],
-                'take_profit': sr.get('nearest_resistance', (0, price * 1.02))[1],
+                'stop_loss': stop_loss,
+                'take_profit': take_profit,
                 'confidence_level': 'HIGH' if advanced_signals['confidence'] >= 80 else 'MID'
             })
     
