@@ -601,7 +601,7 @@ def get_market_data():
 @st.cache_data(ttl=10, show_spinner=False)
 def get_advanced_signals_cached(df_hash, df, imbalance, walls):
     """缓存高级信号分析（10秒）"""
-    return comprehensive_signal_analysis_v2(df, order_imbalance=imbalance, walls=walls)
+    return comprehensive_signal_analysis_v2(df, imbalance=imbalance, walls=walls)
 
 
 # ========== 7. 生成AI审计提示词 ==========
