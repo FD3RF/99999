@@ -9,9 +9,21 @@ import threading
 import datetime
 import os
 import sys
-from streamlit_autorefresh import st_autorefresh
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# 自动刷新（使用JavaScript，兼容Streamlit Cloud）
+def auto_refresh(interval_ms=5000):
+    """使用JavaScript实现自动刷新，兼容Streamlit Cloud"""
+    import streamlit.components.v1 as components
+    refresh_code = f"""
+    <script>
+    setTimeout(function() {{
+        window.location.reload();
+    }}, {interval_ms});
+    </script>
+    """
+    components.html(refresh_code, height=0)
 
 # 导入升级版高级信号模块
 try:
@@ -917,7 +929,7 @@ def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
 
 # ========== 9. 主程序 ==========
 def main():
-    st_autorefresh(interval=5000, key="main_refresh")
+    auto_refresh(5000)  # 5秒自动刷新
     
     # 标题 + 时间
     c_title, c_time = st.columns([4, 1])
