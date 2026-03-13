@@ -917,380 +917,205 @@ def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
 
 # ========== 9. 主程序 ==========
 def main():
-    # 【关键修复】使用st_autorefresh
-    st_autorefresh(interval=5000, key="main_refresh")  # 5秒刷新
+    st_autorefresh(interval=5000, key="main_refresh")
     
-    st.title("🚀 ETHUSDT 机构级量化巡航系统 V2.0")
+    # 标题 + 时间
+    c_title, c_time = st.columns([4, 1])
+    with c_title:
+        st.title("🚀 ETHUSDT 量化巡航系统 V2.0")
+    with c_time:
+        st.markdown(f"### ⏰ {datetime.datetime.now().strftime('%H:%M:%S')}")
     
     client = get_client()
     
-    # 连接状态管理
+    # 连接状态
     if 'connection_tested' not in st.session_state:
-        st.info("🔍 首次启动，正在测试节点连接...")
         results = client.test_all_connections()
         st.session_state['connection_tested'] = True
         st.session_state['connection_results'] = results
     
-    # 侧边栏
+    # 侧边栏（精简）
     with st.sidebar:
-        st.markdown("### 🌐 节点状态")
-        
         if 'connection_results' in st.session_state:
             results = st.session_state['connection_results']
-            available_count = sum(1 for r in results.values() if r['status'])
-            st.metric("可用节点", f"{available_count}/{len(results)}")
-            
-            with st.expander("详细状态", expanded=False):
+            available = sum(1 for r in results.values() if r['status'])
+            st.metric("🌐 节点", f"{available}/{len(results)}")
+            with st.expander("详情"):
                 for name, info in results.items():
-                    if info['status']:
-                        st.success(f"✅ {name}: {info['latency']:.0f}ms")
-                    else:
-                        st.error(f"❌ {name}: {info.get('error', '连接失败')}")
-        
-        if st.button("🔄 重新测试连接", key="test_all"):
-            with st.spinner("测试中..."):
-                results = client.test_all_connections()
-                st.session_state['connection_results'] = results
-                st.rerun()
-        
-        # 显示升级信息
-        st.markdown("---")
-        st.markdown("### ⚡ V2.0 升级内容")
-        st.markdown("""
-        ✅ LSTM概率限制(85%上限)
-        ✅ Dropout防过拟合
-        ✅ VWAP机构成本
-        ✅ CVD订单流
-        ✅ EMA21/EMA200
-        ✅ ATR波动率
-        ✅ 成交量密集区
-        ✅ 多交易所价格统一
-        ✅ Funding Rate
-        ✅ Open Interest
-        ✅ 爆仓监控
-        ✅ 语音播报
-        ✅ 增强K线视觉图
-        """)
-    
-    st.markdown(f"**系统时间**: {datetime.datetime.now().strftime('%H:%M:%S')} | **刷新间隔**: 5秒")
+                    icon = "✅" if info['status'] else "❌"
+                    st.write(f"{icon} {name}")
+        if st.button("🔄 重测"):
+            st.session_state['connection_results'] = client.test_all_connections()
+            st.rerun()
     
     # 获取数据
-    with st.spinner("📡 正在获取数据..."):
+    with st.spinner("📡 获取数据..."):
         df, imbalance, walls, status_msg = get_market_data()
     
     if df.empty or df is None:
-        st.error("❌ 所有节点连接失败")
-        st.warning(f"**详情**: {status_msg}")
+        st.error("❌ 连接失败")
         st.stop()
     
-    # 显示数据源
-    st.info(f"📡 {status_msg}")
-    
-    # 计算基础状态
     last = df.iloc[-1]
     price = last['close']
     vol_ratio = last.get('vol_ratio', 1.0)
     
-    # ========== 高级信号分析 ==========
+    # 高级信号分析
     advanced_signals = None
     if ADVANCED_SIGNALS_AVAILABLE and len(df) >= 50:
-        with st.spinner("🔍 执行高级信号分析..."):
-            try:
-                # 使用缓存的高级信号分析
-                df_hash = hash(df.to_json())  # 创建数据哈希作为缓存键
-                advanced_signals = get_advanced_signals_cached(df_hash, df, imbalance, walls)
-                # 获取计算后的DataFrame
-                if 'df' in advanced_signals:
-                    df = advanced_signals['df']
-            except Exception as e:
-                st.warning(f"高级信号分析失败: {e}")
+        try:
+            df_hash = hash(df.to_json())
+            advanced_signals = get_advanced_signals_cached(df_hash, df, imbalance, walls)
+            if 'df' in advanced_signals:
+                df = advanced_signals['df']
+        except:
+            pass
     
-    # 基础信号生成
-    signals = []
-    if len(df) > 1:
-        if 'ema21' in df.columns and last['close'] > df['ema21'].iloc[-1]:
-            signals.append("价格站上EMA21")
-        if vol_ratio > 2.0:
-            signals.append(f"巨量异动({vol_ratio:.1f}倍)")
-        
-        imbalance_data = calculate_order_imbalance(100*(1+imbalance), 100*(1-imbalance))
-        if imbalance > 0.3:
-            signals.append(f"买盘优势({imbalance:.2f})")
-        elif imbalance < -0.3:
-            signals.append(f"卖盘优势({imbalance:.2f})")
-    
-    # ========== 增强版K线图 ==========
-    st.subheader("📈 增强版K线图")
-    
-    # 生成交易信号（如果有）
+    # ========== K线图 ==========
     trade_signals = []
+    rec, conf = "", 0
+    sig_data = {}
+    
     if advanced_signals and advanced_signals.get('confidence', 0) >= 50:
         rec = advanced_signals['recommendation']
+        conf = advanced_signals['confidence']
+        sig_data = advanced_signals.get('signals', {})
+        
         if rec in ['做多', '做空']:
-            sr = advanced_signals['signals'].get('support_resistance', {})
+            sr = sig_data.get('support_resistance', {})
+            ns = sr.get('nearest_support')
+            nr = sr.get('nearest_resistance')
             
-            # 安全获取止损止盈价格
-            nearest_support = sr.get('nearest_support')
-            nearest_resistance = sr.get('nearest_resistance')
-            
-            # 止损：做多用支撑，做空用阻力
-            if rec == '做多':
-                stop_loss = nearest_support[1] if nearest_support else price * 0.98
-                take_profit = nearest_resistance[1] if nearest_resistance else price * 1.02
-            else:
-                stop_loss = nearest_resistance[1] if nearest_resistance else price * 1.02
-                take_profit = nearest_support[1] if nearest_support else price * 0.98
+            sl = ns[1] if ns else price * 0.98
+            tp = nr[1] if nr else price * 1.02
+            if rec == '做空':
+                sl = nr[1] if nr else price * 1.02
+                tp = ns[1] if ns else price * 0.98
             
             trade_signals.append({
                 'direction': 'LONG' if rec == '做多' else 'SHORT',
                 'index': len(df) - 1,
-                'stop_loss': stop_loss,
-                'take_profit': take_profit,
-                'confidence_level': 'HIGH' if advanced_signals['confidence'] >= 80 else 'MID'
+                'stop_loss': sl,
+                'take_profit': tp,
+                'confidence_level': 'HIGH' if conf >= 80 else 'MID'
             })
     
     fig = plot_enhanced_candlestick(df, advanced_signals, trade_signals)
     st.plotly_chart(fig, use_container_width=True)
     
-    # 基础指标
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("当前价格", f"{price:.2f}")
-    c2.metric("量比", f"{vol_ratio:.2f}", delta="放量" if vol_ratio > 1.5 else "缩量")
+    # ========== 核心指标行（6列）==========
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    with m1:
+        st.metric("💰 价格", f"${price:.2f}")
+    with m2:
+        delta_v = "放量" if vol_ratio > 1.5 else "缩量" if vol_ratio < 0.7 else ""
+        st.metric("📊 量比", f"{vol_ratio:.2f}", delta=delta_v)
+    with m3:
+        imb_s = calculate_order_imbalance(100*(1+imbalance), 100*(1-imbalance)).get('status', '')
+        st.metric("⚖️ 盘口", f"{imbalance:.2f}", delta=imb_s)
+    with m4:
+        atr = df['atr_pct'].iloc[-1] if 'atr_pct' in df.columns else 0
+        st.metric("📈 波动", f"{atr:.2f}%")
+    with m5:
+        funding = sig_data.get('funding_rate', {})
+        st.metric("💵 费率", f"{funding.get('funding_rate', 0):.4f}%")
+    with m6:
+        oi = sig_data.get('open_interest', {})
+        st.metric("📦 持仓", f"{oi.get('open_interest', 0):.0f}")
     
-    imbalance_data = calculate_order_imbalance(100*(1+imbalance), 100*(1-imbalance))
-    c3.metric("盘口失衡", f"{imbalance:.2f}", delta=imbalance_data['status'])
-    
-    # ATR波动率
-    if 'atr_pct' in df.columns:
-        atr_pct = df['atr_pct'].iloc[-1]
-        c4.metric("ATR波动率", f"{atr_pct:.2f}%")
-    
-    # ========== 🎯 综合信号分析 和 🧠 AI审计中心 并排显示 ==========
+    # ========== 核心区域 ==========
     st.markdown("---")
-    col_signal, col_ai = st.columns([1.2, 1])
+    col_left, col_right = st.columns([1, 1])
     
-    # === 🎯 综合信号分析（左侧）===
-    with col_signal:
-        st.subheader("🎯 综合信号分析")
-        
+    # === 左侧：信号 + 交易计划 ===
+    with col_left:
         if advanced_signals and 'signals' in advanced_signals:
-            # 综合建议
-            rec = advanced_signals['recommendation']
-            conf = advanced_signals['confidence']
-            
-            # 语音播报重要信号（置信度>70%）
-            if conf >= 70:
-                alert_text = f"注意，ETHUSDT {rec}信号，置信度{conf:.0f}%"
-                try:
-                    speak_alert(alert_text)
-                except:
-                    pass  # 忽略语音播报错误
-            
+            # 综合建议（醒目显示）
             if rec == "做多":
-                st.success(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+                st.success(f"🟢 **{rec}** | 置信度 {conf:.0f}%")
             elif rec == "做空":
-                st.error(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+                st.error(f"🔴 **{rec}** | 置信度 {conf:.0f}%")
             else:
-                st.info(f"📊 **综合建议**: {rec} (置信度 {conf:.0f}%)")
+                st.info(f"⚪ **{rec}** | 置信度 {conf:.0f}%")
             
-            sig_data = advanced_signals['signals']
+            # 核心信息（一行）
+            ms = sig_data.get('market_state', {})
+            lstm = sig_data.get('lstm_prediction', {})
+            st.write(f"🏛️ 市场: **{ms.get('state', '-')}** | 🤖 AI: **{lstm.get('trend', '-')}** ({lstm.get('probability', 0):.0f}%)")
             
-            # 第一行
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                # 市场状态
-                ms = sig_data.get('market_state', {})
-                st.info(f"🏛️ **市场状态**: {ms.get('state', '分析中')} (强度{ms.get('strength', 0):.0f})")
-                
-                # LSTM预测
-                lstm = sig_data.get('lstm_prediction', {})
-                st.info(f"🤖 **AI预测**: {lstm.get('trend', '分析中')} ({lstm.get('probability', 0):.0f}%)")
+            # 评分
+            st.metric("📊 评分", f"多{advanced_signals['bullish_score']:.0f} / 空{advanced_signals['bearish_score']:.0f}")
             
-            with col2:
-                # 主力吸筹
-                acc = sig_data.get('accumulation', {})
-                if acc.get('signal'):
-                    st.warning(f"🔍 **主力吸筹**: {acc['description']}")
-                
-                # 巨鲸拉升
-                whale = sig_data.get('whale_pump', {})
-                if whale.get('signal'):
-                    st.success(f"🐋 **巨鲸拉升**: {whale['description']}")
-                
-                # 急跌风险
-                crash = sig_data.get('crash_warning', {})
-                if crash.get('signal'):
-                    st.error(f"⚠️ **急跌风险**: {crash['description']}")
+            # 关键信号提醒（如有）
+            alerts = []
+            if sig_data.get('accumulation', {}).get('signal'):
+                alerts.append("🔍主力吸筹")
+            if sig_data.get('whale_pump', {}).get('signal'):
+                alerts.append("🐋巨鲸拉升")
+            if sig_data.get('crash_warning', {}).get('signal'):
+                alerts.append("⚠️急跌风险")
+            if sig_data.get('fake_breakout', {}).get('signal'):
+                alerts.append("🎭假突破")
+            if alerts:
+                st.warning(" | ".join(alerts))
             
-            with col3:
-                # 假突破
-                fake = sig_data.get('fake_breakout', {})
-                if fake.get('signal'):
-                    st.warning(f"🎭 **假突破**: {fake.get('type', '检测到')}")
-                
-                # 支撑压力
-                sr = sig_data.get('support_resistance', {})
-                st.write(f"📍 **支撑压力**: {sr.get('description', '计算中')}")
-                
-                # 量价口诀
-                vp = sig_data.get('volume_price', {})
-                if vp.get('mnemonic'):
-                    st.write(f"📖 **量价口诀**: {vp['mnemonic']}")
+            # 支撑压力
+            sr = sig_data.get('support_resistance', {})
+            st.write(f"📍 {sr.get('description', '计算中')}")
             
-            # 资金情绪
-            st.markdown("---")
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                funding = sig_data.get('funding_rate', {})
-                st.metric("资金费率", f"{funding.get('funding_rate', 0):.4f}%", delta=funding.get('status', '未知'))
-            
-            with col_f2:
-                oi = sig_data.get('open_interest', {})
-                st.metric("持仓量", f"{oi.get('open_interest', 0):.0f}")
-            
-            with col_f3:
-                st.metric("综合评分", f"多{advanced_signals['bullish_score']:.0f} / 空{advanced_signals['bearish_score']:.0f}")
-            
-            # ========== 进场交易计划 ==========
+            # 交易计划
             if rec in ["做多", "做空"] and conf >= 50:
                 st.markdown("---")
-                st.markdown("### 📋 **进场交易计划**")
+                st.markdown("### 📋 交易计划")
                 
-                sr = sig_data.get('support_resistance', {})
-                nearest_support = sr.get('nearest_support')
-                nearest_resistance = sr.get('nearest_resistance')
+                ns = sr.get('nearest_support')
+                nr = sr.get('nearest_resistance')
                 
-                # 计算关键价格
-                entry_price = price
                 if rec == "做多":
-                    stop_loss = nearest_support[1] if nearest_support else price * 0.98
-                    take_profit = nearest_resistance[1] if nearest_resistance else price * 1.02
-                    risk_pct = (entry_price - stop_loss) / entry_price * 100
-                    reward_pct = (take_profit - entry_price) / entry_price * 100
+                    sl = ns[1] if ns else price * 0.98
+                    tp = nr[1] if nr else price * 1.02
                 else:
-                    stop_loss = nearest_resistance[1] if nearest_resistance else price * 1.02
-                    take_profit = nearest_support[1] if nearest_support else price * 0.98
-                    risk_pct = (stop_loss - entry_price) / entry_price * 100
-                    reward_pct = (entry_price - take_profit) / entry_price * 100
+                    sl = nr[1] if nr else price * 1.02
+                    tp = ns[1] if ns else price * 0.98
                 
-                # 盈亏比
-                risk_reward = reward_pct / risk_pct if risk_pct > 0 else 0
+                risk = abs(price - sl) / price * 100
+                reward = abs(tp - price) / price * 100
+                rr = reward / risk if risk > 0 else 0
                 
-                # 仓位建议（基于风险1-2%）
-                suggested_position = min(2.0 / risk_pct, 50) if risk_pct > 0 else 10
+                p1, p2, p3 = st.columns(3)
+                p1.metric("🎯 入场", f"${price:.2f}")
+                p2.metric("🛡️ 止损", f"${sl:.2f}", f"-{risk:.1f}%")
+                p3.metric("💎 止盈", f"${tp:.2f}", f"+{reward:.1f}%")
                 
-                # 显示交易计划
-                plan_col1, plan_col2, plan_col3 = st.columns(3)
+                st.info(f"💰 盈亏比 **1:{rr:.1f}** | 建议仓位 **{min(2/risk, 50):.0f}%**")
                 
-                with plan_col1:
-                    st.markdown(f"""
-                    **🎯 入场信息**
-                    - 方向: `{'🟢 做多' if rec == '做多' else '🔴 做空'}`
-                    - 入场价: `${entry_price:.2f}`
-                    - 置信度: `{conf:.0f}%`
-                    - 信号强度: `{'强' if conf >= 80 else '中' if conf >= 60 else '弱'}`
-                    """)
-                
-                with plan_col2:
-                    st.markdown(f"""
-                    **🛡️ 风险控制**
-                    - 止损价: `${stop_loss:.2f}`
-                    - 风险: `{risk_pct:.2f}%`
-                    - 止盈价: `${take_profit:.2f}`
-                    - 目标: `{reward_pct:.2f}%`
-                    """)
-                
-                with plan_col3:
-                    st.markdown(f"""
-                    **💰 仓位建议**
-                    - 盈亏比: `1:{risk_reward:.1f}`
-                    - 建议仓位: `{suggested_position:.1f}%`
-                    - 半仓止盈: `${entry_price + (take_profit - entry_price) * 0.5 if rec == '做多' else entry_price - (entry_price - take_profit) * 0.5:.2f}`
-                    - 风险等级: `{'低' if risk_pct < 1 else '中' if risk_pct < 2 else '高'}`
-                    """)
-                
-                # 交易提示
-                if conf >= 70 and risk_reward >= 2:
-                    st.success(f"✅ **交易建议**: 置信度高+盈亏比优，建议按计划执行")
-                    speak_alert(f"{rec}信号，入场价{entry_price:.0f}，止损{stop_loss:.0f}，止盈{take_profit:.0f}，盈亏比1比{risk_reward:.1f}")
-                elif conf >= 60:
-                    st.warning(f"⚠️ **交易建议**: 置信度中等，建议轻仓试探")
-                else:
-                    st.info(f"ℹ️ **交易建议**: 置信度较低，建议观望等待确认")
-                
-                # 语音播报交易计划
-                try:
-                    speak_alert(f"{rec}交易计划已生成，入场{entry_price:.0f}，止损{stop_loss:.0f}，止盈{take_profit:.0f}")
-                except:
-                    pass
+                # 语音播报
+                if conf >= 70:
+                    try:
+                        speak_alert(f"{rec}信号，置信度{conf:.0f}%，止损{sl:.0f}，止盈{tp:.0f}", "trade")
+                    except:
+                        pass
         else:
-            st.info("等待高级信号分析...")
+            st.info("等待信号分析...")
     
-    # === 🧠 AI审计中心（右侧）===
-    with col_ai:
-        st.subheader("🧠 AI 审计中心")
+    # === 右侧：AI分析 ===
+    with col_right:
+        st.subheader("🧠 AI 分析")
         
-        # 显示基础信号
-        if signals:
-            st.write("**当前触发信号**:")
-            st.write(", ".join([f"`{s}`" for s in signals]))
-        else:
-            st.write("**当前触发信号**: 无明确信号")
-        
-        # 显示高级信号摘要
-        if advanced_signals:
-            st.markdown("---")
-            st.markdown(f"**综合评分**:")
-            st.write(f"- 做多得分: `{advanced_signals['bullish_score']:.0f}`")
-            st.write(f"- 做空得分: `{advanced_signals['bearish_score']:.0f}`")
-        
-        st.markdown("---")
-        
-        # AI分析
-        with st.spinner("🕵️ AI深度分析中..."):
+        with st.spinner("分析中..."):
             if ADVANCED_SIGNALS_AVAILABLE and advanced_signals:
                 prompt = generate_ai_prompt_v2(df, advanced_signals)
             else:
-                prompt = f"分析ETHUSDT: 价格{price:.2f}, 量比{vol_ratio:.2f}, 盘口{imbalance:.2f}。给出简要操作建议（100字内）。"
+                prompt = f"分析ETHUSDT: 价格{price:.2f}, 量比{vol_ratio:.2f}。简要建议。"
             
             ai_report = get_ai_analysis(prompt)
             
             if "AI服务未启动" in ai_report:
-                st.warning(ai_report)
-                st.info("💡 备用建议：关注 EMA21 支撑，结合量能操作")
+                st.warning("AI服务离线")
                 if advanced_signals:
-                    st.info(f"📊 **智能建议**: {advanced_signals['summary']}")
+                    st.info(advanced_signals.get('summary', '等待分析...'))
             else:
                 st.markdown(ai_report)
-                
-                # ========== 语音播报 ==========
-                if ADVANCED_SIGNALS_AVAILABLE and advanced_signals:
-                    rec = advanced_signals['recommendation']
-                    sig_data = advanced_signals.get('signals', {})
-                    
-                    # 高置信度信号播报
-                    if rec in ["做多", "做空"] and advanced_signals['confidence'] >= 70:
-                        speak_alert(f"{rec}信号确认，置信度{advanced_signals['confidence']:.0f}%")
-                    
-                    # 巨鲸拉升播报
-                    whale = sig_data.get('whale_pump', {})
-                    if whale.get('signal'):
-                        speak_alert(f"巨鲸拉升检测，{whale.get('description', '大资金进场')}")
-                    
-                    # 急跌风险播报
-                    crash = sig_data.get('crash_warning', {})
-                    if crash.get('signal') and crash.get('risk_level') == '高':
-                        speak_alert(f"危险，急跌风险高，{crash.get('description', '注意风险')}")
-                    
-                    # 主力吸筹播报
-                    acc = sig_data.get('accumulation', {})
-                    if acc.get('signal') and acc.get('strength', 0) >= 60:
-                        speak_alert(f"主力吸筹信号，{acc.get('description', '关注做多机会')}")
-                    
-                    # 爆仓监控播报
-                    liq = sig_data.get('liquidations', {})
-                    if liq.get('total_large_trades', 0) > 5:
-                        speak_alert(f"大额交易激增，多{liq.get('long_liquidations', 0)}空{liq.get('short_liquidations', 0)}")
 
 
 if __name__ == "__main__":
