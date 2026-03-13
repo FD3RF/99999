@@ -858,22 +858,59 @@ def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
             showlegend=False
         ), row=3, col=1)
     
-    # === 布局设置 ===
+    # === 布局设置（深色主题）===
     fig.update_layout(
         template='plotly_dark',
         height=600,
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.02, 
+            xanchor="right", 
+            x=1,
+            font=dict(color='#e5e5e5', size=10),
+            bgcolor='rgba(30, 30, 46, 0.8)'
+        ),
         margin=dict(l=0, r=0, t=30, b=0),
         xaxis_rangeslider_visible=False,
         xaxis2_rangeslider_visible=False,
-        xaxis3_rangeslider_visible=False
+        xaxis3_rangeslider_visible=False,
+        # 深色背景
+        plot_bgcolor='#0e1117',
+        paper_bgcolor='#0e1117',
+        font=dict(color='#e5e5e5')
     )
     
-    fig.update_xaxes(title_text="时间", row=3, col=1)
-    fig.update_yaxes(title_text="价格", row=1, col=1)
-    fig.update_yaxes(title_text="成交量", row=2, col=1)
-    fig.update_yaxes(title_text="CVD", row=3, col=1)
+    # 设置所有坐标轴深色主题
+    fig.update_xaxes(
+        title_text="时间", 
+        row=3, col=1,
+        gridcolor='#2d2d3d',
+        linecolor='#3d3d4d',
+        tickfont=dict(color='#9ca3af')
+    )
+    fig.update_yaxes(
+        title_text="价格", 
+        row=1, col=1,
+        gridcolor='#2d2d3d',
+        linecolor='#3d3d4d',
+        tickfont=dict(color='#9ca3af')
+    )
+    fig.update_yaxes(
+        title_text="成交量", 
+        row=2, col=1,
+        gridcolor='#2d2d3d',
+        linecolor='#3d3d4d',
+        tickfont=dict(color='#9ca3af')
+    )
+    fig.update_yaxes(
+        title_text="CVD", 
+        row=3, col=1,
+        gridcolor='#2d2d3d',
+        linecolor='#3d3d4d',
+        tickfont=dict(color='#9ca3af')
+    )
     
     return fig
 
