@@ -659,15 +659,15 @@ VWAP: {vwap_val if vwap_val == 'N/A' else f'{vwap_val:.2f}'}
 
 # ========== 8. 增强版K线图绘制 ==========
 def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
-    """绘制增强版K线图 - 包含入场标记、止损止盈线、放量突破、CVD"""
+    """绘制增强版K线图 - 包含MACD、入场标记、止损止盈线、支撑阻力"""
     
-    # 创建子图：K线 + 成交量 + CVD
+    # 创建子图：K线 + 成交量 + MACD
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
-        row_heights=[0.6, 0.2, 0.2],
-        subplot_titles=('K线图', '成交量', 'CVD订单流')
+        row_heights=[0.5, 0.25, 0.25],
+        subplot_titles=('K线图 + 支撑阻力', '成交量 + MACD', 'CVD订单流')
     )
     
     # === K线图 ===
@@ -858,6 +858,46 @@ def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
             line=dict(color='yellow', width=1),
             name='VOL MA20'
         ), row=2, col=1)
+    
+    # === MACD 指标（在成交量图上叠加）===
+    if advanced_signals and 'signals' in advanced_signals:
+        macd_data = advanced_signals['signals'].get('macd', {})
+        if macd_data:
+            # 计算 MACD 线（如果数据中有）
+            if len(df) >= 35:
+                ema_fast = df['close'].ewm(span=12, adjust=False).mean()
+                ema_slow = df['close'].ewm(span=26, adjust=False).mean()
+                macd_line = ema_fast - ema_slow
+                signal_line = macd_line.ewm(span=9, adjust=False).mean()
+                histogram = macd_line - signal_line
+                
+                # MACD柱状图（归一化到成交量比例）
+                vol_max = df['volume'].max()
+                macd_scale = vol_max * 0.3 / max(abs(histogram).max(), 1)
+                
+                # MACD柱
+                hist_colors = ['#00FF00' if h >= 0 else '#FF0000' for h in histogram]
+                fig.add_trace(go.Bar(
+                    x=df['time'], y=histogram * macd_scale,
+                    marker_color=hist_colors,
+                    name='MACD柱',
+                    opacity=0.4,
+                    showlegend=False
+                ), row=2, col=1)
+                
+                # MACD线
+                fig.add_trace(go.Scatter(
+                    x=df['time'], y=macd_line * macd_scale,
+                    line=dict(color='#00BFFF', width=1.5),
+                    name='MACD'
+                ), row=2, col=1)
+                
+                # Signal线
+                fig.add_trace(go.Scatter(
+                    x=df['time'], y=signal_line * macd_scale,
+                    line=dict(color='#FF6B6B', width=1.5, dash='dot'),
+                    name='Signal'
+                ), row=2, col=1)
     
     # === CVD订单流 ===
     if 'cvd' in df.columns:
@@ -1076,6 +1116,47 @@ def main():
             
             # 评分
             st.metric("📊 评分", f"多{advanced_signals['bullish_score']:.0f} / 空{advanced_signals['bearish_score']:.0f}")
+            
+            # === 多周期趋势 ===
+            mtf = sig_data.get('multi_timeframe', {})
+            if mtf:
+                st.write(f"📈 **多周期趋势**: {mtf.get('description', '-')}")
+                if mtf.get('alignment') in ['全多共振', '全空共振']:
+                    st.success(f"🎯 {mtf.get('alignment')}")
+                elif mtf.get('alignment') in ['偏多', '偏空']:
+                    st.warning(f"📊 {mtf.get('alignment')}")
+            
+            # === MACD 信号 ===
+            macd = sig_data.get('macd', {})
+            if macd:
+                cross = macd.get('cross', '')
+                if cross == '金叉':
+                    st.success(f"📈 MACD **{cross}** | {macd.get('trend', '')}")
+                elif cross == '死叉':
+                    st.error(f"📉 MACD **{cross}** | {macd.get('trend', '')}")
+                else:
+                    st.info(f"📊 MACD: {macd.get('trend', '中性')}")
+            
+            # === 信号仲裁 ===
+            arb = sig_data.get('signal_arbitration', {})
+            if arb:
+                # 冲突信号
+                conflicts = arb.get('conflicts', [])
+                if conflicts:
+                    st.warning(f"⚠️ **冲突信号**: {len(conflicts)}个")
+                    for c in conflicts[:2]:
+                        st.write(f"  - {c[0]} vs {c[1]}")
+                
+                # 确认信号
+                confirmations = arb.get('confirmations', [])
+                if confirmations:
+                    st.success(f"✅ **确认信号**: {len(confirmations)}个")
+                    for c in confirmations[:2]:
+                        st.write(f"  - {c[0]}: {c[1]}")
+                
+                # 最终决策
+                if arb.get('final_decision'):
+                    st.info(f"📋 **仲裁结果**: {arb.get('final_decision')} - {arb.get('reason', '')}")
             
             # 关键信号提醒（如有）
             alerts = []

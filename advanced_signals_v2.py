@@ -597,8 +597,14 @@ def comprehensive_signal_analysis_v2(df: pd.DataFrame, imbalance: float = 0, wal
         "crash_warning": crash_warning,
         "volume_price": volume_price,
         "funding_rate": funding_rate,
-        "open_interest": open_interest
+        "open_interest": open_interest,
+        "macd": calculate_macd(df),
+        "multi_timeframe": analyze_multi_timeframe(df),
+        "signal_arbitration": {}
     }
+    
+    # 信号仲裁系统
+    signals["signal_arbitration"] = signal_arbitration(signals)
     
     summary = f"{recommendation}信号，置信度{confidence:.0f}%。{volume_price['mnemonic']}"
     
@@ -610,4 +616,263 @@ def comprehensive_signal_analysis_v2(df: pd.DataFrame, imbalance: float = 0, wal
         "bearish_score": round(bearish_score, 0),
         "summary": summary,
         "df": df
+    }
+
+
+# ========== 19. MACD 计算 ==========
+def calculate_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict:
+    """计算MACD指标"""
+    if len(df) < slow + signal:
+        return {"macd": 0, "signal": 0, "histogram": 0, "trend": "中性"}
+    
+    # 计算EMA
+    ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
+    ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
+    
+    # MACD线
+    macd_line = ema_fast - ema_slow
+    # 信号线
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    # 柱状图
+    histogram = macd_line - signal_line
+    
+    macd_val = macd_line.iloc[-1]
+    signal_val = signal_line.iloc[-1]
+    hist_val = histogram.iloc[-1]
+    
+    # 判断趋势
+    if hist_val > 0 and hist_val > histogram.iloc[-2]:
+        trend = "多头增强"
+    elif hist_val > 0:
+        trend = "多头减弱"
+    elif hist_val < 0 and hist_val < histogram.iloc[-2]:
+        trend = "空头增强"
+    elif hist_val < 0:
+        trend = "空头减弱"
+    else:
+        trend = "中性"
+    
+    # 金叉死叉
+    cross = ""
+    if macd_line.iloc[-2] < signal_line.iloc[-2] and macd_val > signal_val:
+        cross = "金叉"
+    elif macd_line.iloc[-2] > signal_line.iloc[-2] and macd_val < signal_val:
+        cross = "死叉"
+    
+    return {
+        "macd": round(macd_val, 4),
+        "signal": round(signal_val, 4),
+        "histogram": round(hist_val, 4),
+        "trend": trend,
+        "cross": cross,
+        "description": f"MACD: {macd_val:.2f} | {trend} {cross}"
+    }
+
+
+# ========== 20. 多周期趋势判断 ==========
+def analyze_multi_timeframe(df: pd.DataFrame) -> Dict:
+    """多周期趋势分析"""
+    if len(df) < 200:
+        return {"short": "未知", "medium": "未知", "long": "未知", "alignment": "数据不足"}
+    
+    price = df['close'].iloc[-1]
+    
+    # 短期趋势 (5-20根K线)
+    short_ma = df['close'].rolling(5).mean().iloc[-1]
+    short_trend = "上涨" if price > short_ma else "下跌"
+    short_strength = abs(price - short_ma) / short_ma * 100
+    
+    # 中期趋势 (EMA21)
+    ema21 = df['ema21'].iloc[-1] if 'ema21' in df.columns else df['close'].rolling(21).mean().iloc[-1]
+    medium_trend = "上涨" if price > ema21 else "下跌"
+    medium_strength = abs(price - ema21) / ema21 * 100
+    
+    # 长期趋势 (EMA200)
+    ema200 = df['ema200'].iloc[-1] if 'ema200' in df.columns else df['close'].rolling(200).mean().iloc[-1]
+    long_trend = "上涨" if price > ema200 else "下跌"
+    long_strength = abs(price - ema200) / ema200 * 100
+    
+    # 趋势一致性
+    trends = [short_trend, medium_trend, long_trend]
+    bullish_count = trends.count("上涨")
+    bearish_count = trends.count("下跌")
+    
+    if bullish_count == 3:
+        alignment = "全多共振"
+        score = 100
+    elif bullish_count == 2:
+        alignment = "偏多"
+        score = 66
+    elif bearish_count == 3:
+        alignment = "全空共振"
+        score = 0
+    elif bearish_count == 2:
+        alignment = "偏空"
+        score = 33
+    else:
+        alignment = "震荡"
+        score = 50
+    
+    return {
+        "short": {"trend": short_trend, "strength": round(short_strength, 2)},
+        "medium": {"trend": medium_trend, "strength": round(medium_strength, 2)},
+        "long": {"trend": long_trend, "strength": round(long_strength, 2)},
+        "alignment": alignment,
+        "score": score,
+        "description": f"短{short_trend}|中{medium_trend}|长{long_trend} = {alignment}"
+    }
+
+
+# ========== 21. 信号仲裁系统 ==========
+def signal_arbitration(signals: Dict) -> Dict:
+    """
+    信号仲裁系统 - 综合判断多空信号冲突
+    """
+    arbitration = {
+        "conflicts": [],
+        "confirmations": [],
+        "final_decision": "观望",
+        "confidence_adjustment": 0
+    }
+    
+    # 获取各信号
+    market_state = signals.get('market_state', {})
+    lstm = signals.get('lstm_prediction', {})
+    fake = signals.get('fake_breakout', {})
+    whale = signals.get('whale_pump', {})
+    crash = signals.get('crash_warning', {})
+    vp = signals.get('volume_price', {})
+    macd = signals.get('macd', {})
+    mtf = signals.get('multi_timeframe', {})
+    
+    # 冲突检测
+    conflicts = []
+    confirmations = []
+    
+    # LSTM vs 市场状态
+    if lstm.get('trend') == "上涨" and market_state.get('state') == "下跌趋势":
+        conflicts.append(("AI预测上涨", "市场下跌趋势"))
+    elif lstm.get('trend') == "下跌" and market_state.get('state') == "上涨趋势":
+        conflicts.append(("AI预测下跌", "市场上涨趋势"))
+    
+    # 假突破检测
+    if fake.get('signal'):
+        conflicts.append(("假突破检测", fake.get('type', '')))
+    
+    # 巨鲸拉升确认
+    if whale.get('signal'):
+        confirmations.append(("巨鲸拉升", whale.get('description', '')))
+    
+    # 急跌风险
+    if crash.get('signal') and crash.get('risk_level') == "高":
+        conflicts.append(("急跌风险", crash.get('description', '')))
+    
+    # MACD确认
+    if macd.get('cross') == "金叉":
+        confirmations.append(("MACD金叉", "多头信号"))
+    elif macd.get('cross') == "死叉":
+        confirmations.append(("MACD死叉", "空头信号"))
+    
+    # 多周期共振
+    if mtf.get('alignment') in ["全多共振", "全空共振"]:
+        confirmations.append(("多周期共振", mtf.get('alignment', '')))
+    
+    arbitration["conflicts"] = conflicts
+    arbitration["confirmations"] = confirmations
+    
+    # 最终决策调整
+    conflict_penalty = len(conflicts) * 10
+    confirmation_bonus = len(confirmations) * 5
+    
+    arbitration["confidence_adjustment"] = confirmation_bonus - conflict_penalty
+    
+    # 生成建议
+    if len(conflicts) > len(confirmations):
+        arbitration["final_decision"] = "谨慎观望"
+        arbitration["reason"] = f"检测到{len(conflicts)}个风险信号"
+    elif len(confirmations) > len(conflicts):
+        arbitration["final_decision"] = "信号确认"
+        arbitration["reason"] = f"获得{len(confirmations)}个确认信号"
+    else:
+        arbitration["final_decision"] = "中性观望"
+        arbitration["reason"] = "信号平衡"
+    
+    return arbitration
+
+
+# ========== 22. 增强版支撑阻力（自动绘制）==========
+def calculate_enhanced_support_resistance(df: pd.DataFrame) -> Dict:
+    """增强版支撑阻力计算 - 用于K线图自动绘制"""
+    if len(df) < 50:
+        return {"levels": [], "zones": []}
+    
+    price = df['close'].iloc[-1]
+    levels = []
+    zones = []
+    
+    # 1. 局部极值点
+    for i in range(5, len(df) - 5):
+        # 局部高点
+        if (df['high'].iloc[i] == df['high'].iloc[i-5:i+5].max()):
+            levels.append({
+                "price": df['high'].iloc[i],
+                "type": "resistance",
+                "strength": "strong",
+                "time": df['time'].iloc[i] if 'time' in df.columns else i
+            })
+        # 局部低点
+        if (df['low'].iloc[i] == df['low'].iloc[i-5:i+5].min()):
+            levels.append({
+                "price": df['low'].iloc[i],
+                "type": "support",
+                "strength": "strong",
+                "time": df['time'].iloc[i] if 'time' in df.columns else i
+            })
+    
+    # 2. EMA支撑阻力
+    if 'ema21' in df.columns:
+        ema21 = df['ema21'].iloc[-1]
+        levels.append({
+            "price": ema21,
+            "type": "support" if price > ema21 else "resistance",
+            "strength": "medium",
+            "label": "EMA21"
+        })
+    
+    if 'ema200' in df.columns:
+        ema200 = df['ema200'].iloc[-1]
+        levels.append({
+            "price": ema200,
+            "type": "support" if price > ema200 else "resistance",
+            "strength": "strong",
+            "label": "EMA200"
+        })
+    
+    # 3. VWAP支撑阻力
+    if 'vwap' in df.columns:
+        vwap = df['vwap'].iloc[-1]
+        levels.append({
+            "price": vwap,
+            "type": "support" if price > vwap else "resistance",
+            "strength": "medium",
+            "label": "VWAP"
+        })
+    
+    # 4. 成交量密集区
+    vol_profile = df.groupby(pd.cut(df['close'], bins=20)).agg({'volume': 'sum'})
+    high_vol_zones = vol_profile.nlargest(3, 'volume')
+    for zone in high_vol_zones.index:
+        mid_price = (zone.left + zone.right) / 2
+        zones.append({
+            "price_min": zone.left,
+            "price_max": zone.right,
+            "volume": high_vol_zones.loc[zone, 'volume'],
+            "type": "support" if mid_price < price else "resistance"
+        })
+    
+    return {
+        "levels": levels,
+        "zones": zones,
+        "nearest_support": min([l['price'] for l in levels if l['type'] == 'support' and l['price'] < price], default=price * 0.98),
+        "nearest_resistance": min([l['price'] for l in levels if l['type'] == 'resistance' and l['price'] > price], default=price * 1.02)
     }
