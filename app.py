@@ -1075,38 +1075,44 @@ def main():
             sr = sig_data.get('support_resistance', {})
             st.write(f"📍 {sr.get('description', '计算中')}")
             
-            # 交易计划
-            if rec in ["做多", "做空"] and conf >= 50:
-                st.markdown("---")
-                st.markdown("### 📋 交易计划")
-                
-                ns = sr.get('nearest_support')
-                nr = sr.get('nearest_resistance')
-                
-                if rec == "做多":
-                    sl = ns[1] if ns else price * 0.98
-                    tp = nr[1] if nr else price * 1.02
-                else:
-                    sl = nr[1] if nr else price * 1.02
-                    tp = ns[1] if ns else price * 0.98
-                
-                risk = abs(price - sl) / price * 100
-                reward = abs(tp - price) / price * 100
-                rr = reward / risk if risk > 0 else 0
-                
-                p1, p2, p3 = st.columns(3)
-                p1.metric("🎯 入场", f"${price:.2f}")
-                p2.metric("🛡️ 止损", f"${sl:.2f}", f"-{risk:.1f}%")
-                p3.metric("💎 止盈", f"${tp:.2f}", f"+{reward:.1f}%")
-                
+            # ========== 交易计划/参考区间 ==========
+            st.markdown("---")
+            st.markdown("### 📋 交易计划" if rec in ["做多", "做空"] else "### 📊 参考区间")
+            
+            ns = sr.get('nearest_support')
+            nr = sr.get('nearest_resistance')
+            
+            if rec == "做多" and conf >= 50:
+                sl = ns[1] if ns else price * 0.98
+                tp = nr[1] if nr else price * 1.02
+            elif rec == "做空" and conf >= 50:
+                sl = nr[1] if nr else price * 1.02
+                tp = ns[1] if ns else price * 0.98
+            else:
+                # 观望时：支撑=买入参考，压力=卖出参考
+                sl = ns[1] if ns else price * 0.98
+                tp = nr[1] if nr else price * 1.02
+            
+            risk = abs(price - sl) / price * 100
+            reward = abs(tp - price) / price * 100
+            rr = reward / risk if risk > 0 else 0
+            
+            p1, p2, p3 = st.columns(3)
+            p1.metric("🎯 入场" if rec in ["做多", "做空"] else "📍 支撑", f"${price:.2f}" if rec in ["做多", "做空"] else f"${sl:.2f}")
+            p2.metric("🛡️ 止损" if rec in ["做多", "做空"] else "📍 当前", f"${sl:.2f}" if rec in ["做多", "做空"] else f"${price:.2f}")
+            p3.metric("💎 止盈" if rec in ["做多", "做空"] else "📍 压力", f"${tp:.2f}" if rec in ["做多", "做空"] else f"${tp:.2f}")
+            
+            if rec in ["做多", "做空"]:
                 st.info(f"💰 盈亏比 **1:{rr:.1f}** | 建议仓位 **{min(2/risk, 50):.0f}%**")
-                
-                # 语音播报
-                if conf >= 70:
-                    try:
-                        speak_alert(f"{rec}信号，置信度{conf:.0f}%，止损{sl:.0f}，止盈{tp:.0f}", "trade")
-                    except:
-                        pass
+            else:
+                st.info(f"📊 区间: **${sl:.2f} - ${tp:.2f}** | 波动空间 **{reward:.1f}%**")
+            
+            # 语音播报（仅明确信号）
+            if rec in ["做多", "做空"] and conf >= 70:
+                try:
+                    speak_alert(f"{rec}信号，置信度{conf:.0f}%，止损{sl:.0f}，止盈{tp:.0f}", "trade")
+                except:
+                    pass
         else:
             st.info("等待信号分析...")
     
