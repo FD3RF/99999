@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import time
 import threading
 import datetime
@@ -485,7 +486,222 @@ VWAP: {vwap_val if vwap_val == 'N/A' else f'{vwap_val:.2f}'}
     return prompt
 
 
-# ========== 8. 主程序 ==========
+# ========== 8. 增强版K线图绘制 ==========
+def plot_enhanced_candlestick(df, advanced_signals=None, trade_signals=None):
+    """绘制增强版K线图 - 包含入场标记、止损止盈线、放量突破、CVD"""
+    
+    # 创建子图：K线 + 成交量 + CVD
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[0.6, 0.2, 0.2],
+        subplot_titles=('K线图', '成交量', 'CVD订单流')
+    )
+    
+    # === K线图 ===
+    fig.add_trace(go.Candlestick(
+        x=df['time'],
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='K线',
+        increasing_line_color='#00FF00',
+        decreasing_line_color='#FF0000',
+        increasing_fillcolor='#00FF00',
+        decreasing_fillcolor='#FF0000'
+    ), row=1, col=1)
+    
+    # === EMA21 ===
+    if 'ema21' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=df['ema21'],
+            line=dict(color='#FFA500', width=1.5),
+            name='EMA21'
+        ), row=1, col=1)
+    
+    # === EMA200 ===
+    if 'ema200' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=df['ema200'],
+            line=dict(color='#1E90FF', width=1.5),
+            name='EMA200'
+        ), row=1, col=1)
+    
+    # === VWAP ===
+    if 'vwap' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=df['vwap'],
+            line=dict(color='#9370DB', width=1.5, dash='dot'),
+            name='VWAP'
+        ), row=1, col=1)
+    
+    # === 支撑压力位（增强版）===
+    if advanced_signals and 'signals' in advanced_signals:
+        sr = advanced_signals['signals'].get('support_resistance', {})
+        
+        # 支撑位（带区域填充）
+        if sr.get('nearest_support'):
+            support_price = sr['nearest_support'][1]
+            fig.add_hline(y=support_price, line_dash="dash", 
+                         line_color="#00FF00", opacity=0.8, line_width=2,
+                         annotation_text=f"支撑 ${support_price:.2f}",
+                         annotation_position="right",
+                         row=1, col=1)
+            # 支撑区域
+            fig.add_hrect(y0=support_price * 0.998, y1=support_price * 1.002,
+                         fillcolor="green", opacity=0.1, line_width=0,
+                         row=1, col=1)
+        
+        # 阻力位（带区域填充）
+        if sr.get('nearest_resistance'):
+            resistance_price = sr['nearest_resistance'][1]
+            fig.add_hline(y=resistance_price, line_dash="dash",
+                         line_color="#FF0000", opacity=0.8, line_width=2,
+                         annotation_text=f"阻力 ${resistance_price:.2f}",
+                         annotation_position="right",
+                         row=1, col=1)
+            # 阻力区域
+            fig.add_hrect(y0=resistance_price * 0.998, y1=resistance_price * 1.002,
+                         fillcolor="red", opacity=0.1, line_width=0,
+                         row=1, col=1)
+    
+    # === 放量突破标注 ===
+    if 'vol_ratio' in df.columns:
+        vol_ratio = df['vol_ratio']
+        high_vol_mask = vol_ratio > 1.5
+        
+        # 放量K线高亮
+        for idx in df[high_vol_mask].index:
+            row_data = df.loc[idx]
+            # 放量标记
+            fig.add_trace(go.Scatter(
+                x=[row_data['time']], y=[row_data['low'] * 0.998],
+                mode='markers',
+                marker=dict(symbol='triangle-up', size=12, color='#FFD700', line=dict(color='#FFD700', width=2)),
+                name='放量突破' if idx == df[high_vol_mask].index[0] else '',
+                showlegend=True if idx == df[high_vol_mask].index[0] else False
+            ), row=1, col=1)
+    
+    # === 交易信号标记（入场三角）===
+    if trade_signals:
+        for signal in trade_signals:
+            idx = signal.get('index', len(df) - 1)
+            if idx < len(df):
+                row_data = df.iloc[idx]
+                price = row_data['close']
+                
+                # 入场三角
+                if signal['direction'] == 'LONG':
+                    marker_symbol = 'triangle-up'
+                    marker_color = '#00FF00'
+                else:
+                    marker_symbol = 'triangle-down'
+                    marker_color = '#FF0000'
+                
+                # 根据置信度调整大小
+                marker_size = 15 if signal.get('confidence_level') == 'HIGH' else 12
+                
+                fig.add_trace(go.Scatter(
+                    x=[row_data['time']], y=[price],
+                    mode='markers',
+                    marker=dict(symbol=marker_symbol, size=marker_size, 
+                               color=marker_color, line=dict(color='#FFD700', width=2)),
+                    name=f"入场-{signal['direction']}"
+                ), row=1, col=1)
+                
+                # 止损线
+                stop_loss = signal.get('stop_loss', price * 0.98)
+                fig.add_hline(y=stop_loss, line_dash="dash",
+                             line_color="#FF4500", opacity=0.7, line_width=1.5,
+                             annotation_text=f"止损 ${stop_loss:.2f}",
+                             annotation_position="left",
+                             row=1, col=1)
+                
+                # 止盈线
+                take_profit = signal.get('take_profit', price * 1.02)
+                fig.add_hline(y=take_profit, line_dash="dash",
+                             line_color="#32CD32", opacity=0.7, line_width=1.5,
+                             annotation_text=f"止盈 ${take_profit:.2f}",
+                             annotation_position="left",
+                             row=1, col=1)
+    
+    # === 成交量柱状图 ===
+    colors = ['#00FF00' if df.iloc[i]['close'] >= df.iloc[i]['open'] else '#FF0000' 
+              for i in range(len(df))]
+    
+    # 放量高亮
+    if 'vol_ratio' in df.columns:
+        colors = ['#FFD700' if df.iloc[i]['vol_ratio'] > 1.5 else colors[i] 
+                  for i in range(len(df))]
+    
+    fig.add_trace(go.Bar(
+        x=df['time'], y=df['volume'],
+        marker_color=colors,
+        name='成交量',
+        opacity=0.7
+    ), row=2, col=1)
+    
+    # 成交量均线
+    if 'vol_ma' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=df['vol_ma'],
+            line=dict(color='yellow', width=1),
+            name='VOL MA20'
+        ), row=2, col=1)
+    
+    # === CVD订单流 ===
+    if 'cvd' in df.columns:
+        cvd = df['cvd']
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=cvd,
+            line=dict(color='cyan', width=1.5),
+            name='CVD',
+            fill='tozeroy',
+            fillcolor='rgba(0, 255, 255, 0.2)'
+        ), row=3, col=1)
+        
+        # CVD正值/负值区域
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=cvd.clip(lower=0),
+            fill='tozeroy',
+            fillcolor='rgba(0, 255, 0, 0.3)',
+            line=dict(color='rgba(0,255,0,0)'),
+            name='CVD多',
+            showlegend=False
+        ), row=3, col=1)
+        
+        fig.add_trace(go.Scatter(
+            x=df['time'], y=cvd.clip(upper=0),
+            fill='tozeroy',
+            fillcolor='rgba(255, 0, 0, 0.3)',
+            line=dict(color='rgba(255,0,0,0)'),
+            name='CVD空',
+            showlegend=False
+        ), row=3, col=1)
+    
+    # === 布局设置 ===
+    fig.update_layout(
+        template='plotly_dark',
+        height=600,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=0, r=0, t=30, b=0),
+        xaxis_rangeslider_visible=False,
+        xaxis2_rangeslider_visible=False,
+        xaxis3_rangeslider_visible=False
+    )
+    
+    fig.update_xaxes(title_text="时间", row=3, col=1)
+    fig.update_yaxes(title_text="价格", row=1, col=1)
+    fig.update_yaxes(title_text="成交量", row=2, col=1)
+    fig.update_yaxes(title_text="CVD", row=3, col=1)
+    
+    return fig
+
+
+# ========== 9. 主程序 ==========
 def main():
     # 【关键修复】使用st_autorefresh
     st_autorefresh(interval=5000, key="main_refresh")  # 5秒刷新
@@ -539,6 +755,7 @@ def main():
         ✅ Open Interest
         ✅ 爆仓监控
         ✅ 语音播报
+        ✅ 增强K线视觉图
         """)
     
     st.markdown(f"**系统时间**: {datetime.datetime.now().strftime('%H:%M:%S')} | **刷新间隔**: 5秒")
@@ -588,80 +805,48 @@ def main():
         elif imbalance < -0.3:
             signals.append(f"卖盘优势({imbalance:.2f})")
     
-    # 页面布局
-    col_chart, col_ai = st.columns([1.5, 1])
+    # ========== 增强版K线图 ==========
+    st.subheader("📈 增强版K线图")
     
-    with col_chart:
-        if len(df) > 1:
-            st.subheader("📈 实时行情 (5m)")
-            fig = go.Figure()
-            
-            # K线图
-            fig.add_trace(go.Candlestick(
-                x=df['time'], open=df['open'], high=df['high'], 
-                low=df['low'], close=df['close'], name='K线',
-                increasing_line_color='green',
-                decreasing_line_color='red',
-                increasing_fillcolor='green',
-                decreasing_fillcolor='red'
-            ))
-            
-            # EMA21
-            if 'ema21' in df.columns:
-                fig.add_trace(go.Scatter(
-                    x=df['time'], y=df['ema21'], 
-                    line=dict(color='orange', width=1.5), name='EMA21'
-                ))
-            
-            # EMA200
-            if 'ema200' in df.columns:
-                fig.add_trace(go.Scatter(
-                    x=df['time'], y=df['ema200'], 
-                    line=dict(color='blue', width=1.5), name='EMA200'
-                ))
-            
-            # VWAP
-            if 'vwap' in df.columns:
-                fig.add_trace(go.Scatter(
-                    x=df['time'], y=df['vwap'], 
-                    line=dict(color='purple', width=1.5, dash='dot'), name='VWAP'
-                ))
-            
-            # 支撑压力位
-            if advanced_signals and 'signals' in advanced_signals:
-                sr = advanced_signals['signals'].get('support_resistance', {})
-                if sr.get('nearest_support'):
-                    fig.add_hline(y=sr['nearest_support'][1], line_dash="dot", 
-                                  line_color="green", opacity=0.5,
-                                  annotation_text=f"支撑", 
-                                  annotation_position="right")
-                if sr.get('nearest_resistance'):
-                    fig.add_hline(y=sr['nearest_resistance'][1], line_dash="dot", 
-                                  line_color="red", opacity=0.5,
-                                  annotation_text=f"压力", 
-                                  annotation_position="right")
-            
-            fig.update_layout(xaxis_rangeslider_visible=False, height=500, margin=dict(l=0,r=0,t=0,b=0))
-            st.plotly_chart(fig, use_container_width=True)
+    # 生成交易信号（如果有）
+    trade_signals = []
+    if advanced_signals and advanced_signals.get('confidence', 0) >= 60:
+        rec = advanced_signals['recommendation']
+        if rec in ['做多', '做空']:
+            sr = advanced_signals['signals'].get('support_resistance', {})
+            trade_signals.append({
+                'direction': 'LONG' if rec == '做多' else 'SHORT',
+                'index': len(df) - 1,
+                'stop_loss': sr.get('nearest_support', (0, price * 0.98))[1],
+                'take_profit': sr.get('nearest_resistance', (0, price * 1.02))[1],
+                'confidence_level': 'HIGH' if advanced_signals['confidence'] >= 80 else 'MID'
+            })
+    
+    fig = plot_enhanced_candlestick(df, advanced_signals, trade_signals)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 基础指标
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("当前价格", f"{price:.2f}")
+    c2.metric("量比", f"{vol_ratio:.2f}", delta="放量" if vol_ratio > 1.5 else "缩量")
+    
+    imbalance_data = calculate_order_imbalance(100*(1+imbalance), 100*(1-imbalance))
+    c3.metric("盘口失衡", f"{imbalance:.2f}", delta=imbalance_data['status'])
+    
+    # ATR波动率
+    if 'atr_pct' in df.columns:
+        atr_pct = df['atr_pct'].iloc[-1]
+        c4.metric("ATR波动率", f"{atr_pct:.2f}%")
+    
+    # ========== 🎯 综合信号分析 和 🧠 AI审计中心 并排显示 ==========
+    st.markdown("---")
+    col_signal, col_ai = st.columns([1.2, 1])
+    
+    # === 🎯 综合信号分析（左侧）===
+    with col_signal:
+        st.subheader("🎯 综合信号分析")
         
-        # 基础指标
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("当前价格", f"{price:.2f}")
-        c2.metric("量比", f"{vol_ratio:.2f}", delta="放量" if vol_ratio > 1.5 else "缩量")
-        
-        imbalance_data = calculate_order_imbalance(100*(1+imbalance), 100*(1-imbalance))
-        c3.metric("盘口失衡", f"{imbalance:.2f}", delta=imbalance_data['status'])
-        
-        # ATR波动率
-        if 'atr_pct' in df.columns:
-            atr_pct = df['atr_pct'].iloc[-1]
-            c4.metric("ATR波动率", f"{atr_pct:.2f}%")
-        
-        # ========== 高级信号显示 ==========
         if advanced_signals and 'signals' in advanced_signals:
-            st.markdown("---")
-            st.subheader("🎯 综合信号分析")
-            
             # 综合建议
             rec = advanced_signals['recommendation']
             conf = advanced_signals['confidence']
@@ -699,38 +884,18 @@ def main():
                 acc = sig_data.get('accumulation', {})
                 if acc.get('signal'):
                     st.warning(f"🔍 **主力吸筹**: {acc['description']}")
-                    # 语音播报主力吸筹
-                    try:
-                        speak_alert(f"检测到主力吸筹信号，{acc['description']}")
-                    except:
-                        pass
                 
                 # 巨鲸拉升
                 whale = sig_data.get('whale_pump', {})
                 if whale.get('signal'):
                     st.success(f"🐋 **巨鲸拉升**: {whale['description']}")
-                    # 语音播报巨鲸拉升
-                    try:
-                        speak_alert(f"巨鲸拉升信号，{whale['description']}")
-                    except:
-                        pass
                 
                 # 急跌风险
                 crash = sig_data.get('crash_warning', {})
                 if crash.get('signal'):
-                    st.error(f"⚠️ **急跌风险**: {crash['description']} (风险:{crash.get('risk_level', '低')})")
-                    # 语音播报急跌风险
-                    try:
-                        speak_alert(f"警告，急跌风险，{crash['description']}")
-                    except:
-                        pass
+                    st.error(f"⚠️ **急跌风险**: {crash['description']}")
             
             with col3:
-                # 量价口诀
-                vp = sig_data.get('volume_price', {})
-                if vp.get('mnemonic'):
-                    st.write(f"📖 **量价口诀**: {vp['mnemonic']}")
-                
                 # 假突破
                 fake = sig_data.get('fake_breakout', {})
                 if fake.get('signal'):
@@ -739,8 +904,13 @@ def main():
                 # 支撑压力
                 sr = sig_data.get('support_resistance', {})
                 st.write(f"📍 **支撑压力**: {sr.get('description', '计算中')}")
+                
+                # 量价口诀
+                vp = sig_data.get('volume_price', {})
+                if vp.get('mnemonic'):
+                    st.write(f"📖 **量价口诀**: {vp['mnemonic']}")
             
-            # 第二行：资金情绪
+            # 资金情绪
             st.markdown("---")
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
@@ -753,7 +923,10 @@ def main():
             
             with col_f3:
                 st.metric("综合评分", f"多{advanced_signals['bullish_score']:.0f} / 空{advanced_signals['bearish_score']:.0f}")
+        else:
+            st.info("等待高级信号分析...")
     
+    # === 🧠 AI审计中心（右侧）===
     with col_ai:
         st.subheader("🧠 AI 审计中心")
         
@@ -818,6 +991,7 @@ def main():
                     liq = sig_data.get('liquidations', {})
                     if liq.get('total_large_trades', 0) > 5:
                         speak_alert(f"大额交易激增，多{liq.get('long_liquidations', 0)}空{liq.get('short_liquidations', 0)}")
+
 
 if __name__ == "__main__":
     main()
