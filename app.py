@@ -51,6 +51,25 @@ try:
 except ImportError as e:
     ADVANCED_SIGNALS_AVAILABLE = False
     print(f"⚠️ 升级版高级信号模块未加载: {e}")
+    
+    # ========== 备用函数定义（防止NameError）==========
+    def calculate_order_imbalance(bid_vol, ask_vol):
+        """备用盘口失衡计算"""
+        total = bid_vol + ask_vol
+        if total == 0:
+            return {'imbalance': 0, 'status': '无数据'}
+        imb = (bid_vol - ask_vol) / total
+        if imb > 0.3:
+            status = "买盘优势"
+        elif imb < -0.3:
+            status = "卖盘优势"
+        else:
+            status = "平衡"
+        return {'imbalance': imb, 'status': status}
+    
+    def speak_alert(text, alert_type="default"):
+        """备用语音播报（无操作）"""
+        pass
 
 # ========== 1. 页面配置 ==========
 st.set_page_config(
