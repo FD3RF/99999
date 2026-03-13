@@ -1150,6 +1150,79 @@ def main():
             
             with col_f3:
                 st.metric("综合评分", f"多{advanced_signals['bullish_score']:.0f} / 空{advanced_signals['bearish_score']:.0f}")
+            
+            # ========== 进场交易计划 ==========
+            if rec in ["做多", "做空"] and conf >= 50:
+                st.markdown("---")
+                st.markdown("### 📋 **进场交易计划**")
+                
+                sr = sig_data.get('support_resistance', {})
+                nearest_support = sr.get('nearest_support')
+                nearest_resistance = sr.get('nearest_resistance')
+                
+                # 计算关键价格
+                entry_price = price
+                if rec == "做多":
+                    stop_loss = nearest_support[1] if nearest_support else price * 0.98
+                    take_profit = nearest_resistance[1] if nearest_resistance else price * 1.02
+                    risk_pct = (entry_price - stop_loss) / entry_price * 100
+                    reward_pct = (take_profit - entry_price) / entry_price * 100
+                else:
+                    stop_loss = nearest_resistance[1] if nearest_resistance else price * 1.02
+                    take_profit = nearest_support[1] if nearest_support else price * 0.98
+                    risk_pct = (stop_loss - entry_price) / entry_price * 100
+                    reward_pct = (entry_price - take_profit) / entry_price * 100
+                
+                # 盈亏比
+                risk_reward = reward_pct / risk_pct if risk_pct > 0 else 0
+                
+                # 仓位建议（基于风险1-2%）
+                suggested_position = min(2.0 / risk_pct, 50) if risk_pct > 0 else 10
+                
+                # 显示交易计划
+                plan_col1, plan_col2, plan_col3 = st.columns(3)
+                
+                with plan_col1:
+                    st.markdown(f"""
+                    **🎯 入场信息**
+                    - 方向: `{'🟢 做多' if rec == '做多' else '🔴 做空'}`
+                    - 入场价: `${entry_price:.2f}`
+                    - 置信度: `{conf:.0f}%`
+                    - 信号强度: `{'强' if conf >= 80 else '中' if conf >= 60 else '弱'}`
+                    """)
+                
+                with plan_col2:
+                    st.markdown(f"""
+                    **🛡️ 风险控制**
+                    - 止损价: `${stop_loss:.2f}`
+                    - 风险: `{risk_pct:.2f}%`
+                    - 止盈价: `${take_profit:.2f}`
+                    - 目标: `{reward_pct:.2f}%`
+                    """)
+                
+                with plan_col3:
+                    st.markdown(f"""
+                    **💰 仓位建议**
+                    - 盈亏比: `1:{risk_reward:.1f}`
+                    - 建议仓位: `{suggested_position:.1f}%`
+                    - 半仓止盈: `${entry_price + (take_profit - entry_price) * 0.5 if rec == '做多' else entry_price - (entry_price - take_profit) * 0.5:.2f}`
+                    - 风险等级: `{'低' if risk_pct < 1 else '中' if risk_pct < 2 else '高'}`
+                    """)
+                
+                # 交易提示
+                if conf >= 70 and risk_reward >= 2:
+                    st.success(f"✅ **交易建议**: 置信度高+盈亏比优，建议按计划执行")
+                    speak_alert(f"{rec}信号，入场价{entry_price:.0f}，止损{stop_loss:.0f}，止盈{take_profit:.0f}，盈亏比1比{risk_reward:.1f}")
+                elif conf >= 60:
+                    st.warning(f"⚠️ **交易建议**: 置信度中等，建议轻仓试探")
+                else:
+                    st.info(f"ℹ️ **交易建议**: 置信度较低，建议观望等待确认")
+                
+                # 语音播报交易计划
+                try:
+                    speak_alert(f"{rec}交易计划已生成，入场{entry_price:.0f}，止损{stop_loss:.0f}，止盈{take_profit:.0f}")
+                except:
+                    pass
         else:
             st.info("等待高级信号分析...")
     

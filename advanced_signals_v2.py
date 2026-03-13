@@ -969,22 +969,67 @@ def comprehensive_signal_analysis_v2(df: pd.DataFrame, order_imbalance: float = 
 
 
 # ========== 语音播报 ==========
-def speak_alert(text: str):
-    """本地语音播报"""
+import time
+
+# 语音播报冷却控制
+_last_speak_time = {}
+_SPEAK_COOLDOWN = 60  # 同类型播报冷却时间（秒）
+
+def speak_alert(text: str, alert_type: str = "default"):
+    """
+    本地语音播报（支持多平台）
+    
+    Args:
+        text: 播报文本
+        alert_type: 播报类型（用于冷却控制）
+    """
     import threading
+    import os
+    
+    # 冷却检查
+    current_time = time.time()
+    if alert_type in _last_speak_time:
+        if current_time - _last_speak_time[alert_type] < _SPEAK_COOLDOWN:
+            return  # 冷却中，跳过
+    _last_speak_time[alert_type] = current_time
     
     def _speak():
         try:
-            import os
+            # Windows: 使用 pyttsx3
             if os.name == "nt":
                 import pyttsx3
                 engine = pyttsx3.init()
                 engine.setProperty('rate', 150)
+                engine.setProperty('volume', 0.9)
                 engine.say(text)
                 engine.runAndWait()
+            
+            # macOS: 使用 say 命令
+            elif os.name == "posix" and os.uname().sysname == "Darwin":
+                os.system(f'say "{text}"')
+            
+            # Linux: 尝试使用 espeak 或 pyttsx3
+            elif os.name == "posix":
+                try:
+                    # 先尝试 espeak
+                    import subprocess
+                    subprocess.run(['espeak', '-v', 'zh', text], 
+                                 capture_output=True, timeout=5)
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    # 尝试 pyttsx3
+                    try:
+                        import pyttsx3
+                        engine = pyttsx3.init()
+                        engine.setProperty('rate', 150)
+                        engine.say(text)
+                        engine.runAndWait()
+                    except:
+                        print(f"📢 [语音播报] {text}")
+            
         except Exception as e:
-            print(f"语音播报失败: {e}")
+            print(f"📢 [语音播报] {text} (播报失败: {e})")
     
+    # 后台线程执行
     threading.Thread(target=_speak, daemon=True).start()
 
 
