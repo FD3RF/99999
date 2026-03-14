@@ -359,6 +359,21 @@ def main():
                 sl = nr[1] if nr else price * 1.02
                 tp = ns[1] if ns else price * 0.98
             
+            # 修复：如果止盈价格等于入场价，使用ATR动态计算
+            atr = df['atr'].iloc[-1] if 'atr' in df.columns else price * 0.01
+            if rec == "做空":
+                # 做空止损在上方，止盈在下方
+                if sl <= price:  # 止损应该在入场价上方
+                    sl = price + atr * 1.5
+                if tp >= price or abs(tp - price) < 1:  # 止盈应该在入场价下方
+                    tp = price - atr * 2
+            else:
+                # 做多止损在下方，止盈在上方
+                if sl >= price:  # 止损应该在入场价下方
+                    sl = price - atr * 1.5
+                if tp <= price or abs(tp - price) < 1:  # 止盈应该在入场价上方
+                    tp = price + atr * 2
+            
             risk = abs(price - sl) / price * 100
             reward = abs(tp - price) / price * 100
             rr = reward / risk if risk > 0 else 0
