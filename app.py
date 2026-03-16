@@ -230,6 +230,28 @@ def main():
     if df.empty or df is None:
         st.error("❌ 连接失败")
         st.stop()
+
+    # 历史回放：按日期范围过滤
+    df = df.sort_values('time').reset_index(drop=True)
+    min_date = df['time'].min().date()
+    max_date = df['time'].max().date()
+
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("🕰️ 历史回放")
+        start_date = st.date_input("起始日期", value=min_date, min_value=min_date, max_value=max_date)
+        end_date = st.date_input("结束日期", value=max_date, min_value=min_date, max_value=max_date)
+
+    if start_date > end_date:
+        st.error("❌ 起始日期不能晚于结束日期")
+        st.stop()
+
+    date_mask = (df['time'].dt.date >= start_date) & (df['time'].dt.date <= end_date)
+    df = df.loc[date_mask].reset_index(drop=True)
+
+    if df.empty:
+        st.warning("⚠️ 当前日期范围无数据，请调整历史回放区间")
+        st.stop()
     
     last = df.iloc[-1]
     price = last['close']
