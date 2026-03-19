@@ -17,10 +17,9 @@ def calculate_macd(df):
     return df
 
 def calculate_volume_metrics(df):
-    """计算成交量指标（修复分类顺序）"""
+    """计算成交量指标"""
     df["volume_ma20"] = df["volume"].rolling(window=VOLUME_MA_PERIOD).mean()
     df["volume_ratio"] = df["volume"] / df["volume_ma20"]
-    # 条件顺序：从最严格到宽松
     conditions = [
         df["volume_ratio"] >= VOLUME_RATIO_PANIC,
         df["volume_ratio"] >= VOLUME_RATIO_SIGNIFICANT,
@@ -33,29 +32,37 @@ def calculate_volume_metrics(df):
     return df
 
 def find_swing_points(df, window=SWING_WINDOW):
-    """识别波段高低点（至少经过两次测试有效）"""
+    """识别波段高低点"""
     df["swing_high"] = False
     df["swing_low"] = False
     for i in range(window, len(df) - window):
-        # 波段高点：左右各window根K线中最高
         if df["high"].iloc[i] == max(df["high"].iloc[i-window:i+window+1]):
             df.loc[df.index[i], "swing_high"] = True
-        # 波段低点：左右各window根K线中最低
         if df["low"].iloc[i] == min(df["low"].iloc[i-window:i+window+1]):
             df.loc[df.index[i], "swing_low"] = True
     return df
 
+def calculate_support_resistance(df, lookback=20):
+    """计算支撑位和压力位"""
+    recent_highs = df[df["swing_high"]]["high"].tail(3)
+    recent_lows = df[df["swing_low"]]["low"].tail(3)
+    
+    resistance = recent_highs.mean() if len(recent_highs) > 0 else df["high"].tail(lookback).max()
+    support = recent_lows.mean() if len(recent_lows) > 0 else df["low"].tail(lookback).min()
+    
+    return support, resistance
+
 def identify_candlestick_patterns(df):
-    """识别K线形态（完整版）"""
+    """识别K线形态"""
     df["body"] = abs(df["close"] - df["open"])
     df["upper_shadow"] = df["high"] - df[["close", "open"]].max(axis=1)
     df["lower_shadow"] = df[["close", "open"]].min(axis=1) - df["low"]
 
     avg_body = df["body"].rolling(10).mean()
 
-    # 见底反转形态
+    # 见底反转
     df["hammer"] = (
-        (df["close"] < df["open"].shift(1)) &  # 前期下跌
+        (df["close"] < df["open"].shift(1)) &
         (df["lower_shadow"] >= df["body"] * LONG_SHADOW_RATIO) &
         (df["upper_shadow"] <= df["body"] * 0.3)
     )
@@ -67,11 +74,10 @@ def identify_candlestick_patterns(df):
         (df["open"] < df["low"].shift(1)) &
         (df["close"] > (df["open"].shift(1) + df["close"].shift(1)) / 2)
     )
-    # 启明星简化版（三根组合检测复杂，可后续扩展）
 
-    # 见顶反转形态
+    # 见顶反转
     df["shooting_star"] = (
-        (df["close"] > df["open"].shift(1)) &  # 前期上涨
+        (df["close"] > df["open"].shift(1)) &
         (df["upper_shadow"] >= df["body"] * LONG_SHADOW_RATIO) &
         (df["lower_shadow"] <= df["body"] * 0.3)
     )
@@ -83,7 +89,6 @@ def identify_candlestick_patterns(df):
         (df["open"] > df["high"].shift(1)) &
         (df["close"] < (df["open"].shift(1) + df["close"].shift(1)) / 2)
     )
-    # 黄昏星组合可后续添加
 
     # 持续形态
     df["big_bull"] = (
@@ -110,17 +115,4 @@ def identify_candlestick_patterns(df):
         (df["close"] < df["open"].shift(1)) &
         (df["open"] > df["close"].shift(1))
     )
-    return df
-
-def detect_divergence(df, lookback=20):
-    """
-    检测顶背离和底背离（基于波段点）
-    返回最新K线是否背离
-    """
-    # 简化实现：检测最近两个波段
-    # 实际生产中可用更复杂算法
-    # 此处返回占位，后续可在信号函数中调用
-    df["bull_div"] = False
-    df["bear_div"] = False
-    # 略（可根据需要实现）
     return df
