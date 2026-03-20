@@ -258,7 +258,7 @@ class SignalEngine:
         range_high = range_df["high"].max()
         range_low = range_df["low"].min()
         avg_price = (range_high + range_low) / 2
-        
+
         if self.latest["close"] < avg_price * 0.9:
             return None
         if (range_high - range_low) / avg_price > RANGE_HEIGHT_RATIO:
@@ -267,11 +267,11 @@ class SignalEngine:
             return None
         if not (self.latest["close"] < range_low and self._is_volume_expanding(VOLUME_RATIO_SIGNIFICANT) and self.latest["macd_hist"] < 0):
             return None
-        
+
         entry = self.latest["close"]
         stop_loss = range_high * (1 + STOP_BUFFER)
         target = entry - MIN_RISK_REWARD_RATIO * (stop_loss - entry)
-        
+
         return {
             "direction": "SHORT",
             "type": "横盘突破做空",
@@ -282,10 +282,127 @@ class SignalEngine:
             "mnemonic": "缩量横盘高点压，MACD粘合小K线；谁先放量向下破，跌破区间立即空。"
         }
 
+    def check_morning_star(self):
+        """启明星形态：下跌后出现，看涨反转"""
+        if len(self.df) < 3:
+            return None
+        k1 = self.df.iloc[-3]
+        k2 = self.df.iloc[-2]
+        k3 = self.latest
+        # 条件：第一根阴线，第二根星线（实体小），第三根阳线收复
+        if (k1["close"] < k1["open"] and  # 第一根阴线
+            abs(k2["close"] - k2["open"]) < (max(k2["open"], k2["close"]) - min(k2["open"], k2["close"])) * 0.5 and  # 第二根星线实体小
+            k3["close"] > k3["open"] and  # 第三根阳线
+            k3["close"] > (k1["open"] + k1["close"]) / 2 and  # 收复第一根实体一半以上
+            k3["volume_ratio"] >= 1.2):  # 第三根温和放量
+            entry = k3["close"]
+            stop_loss = min(k1["low"], k2["low"], k3["low"]) * (1 - STOP_BUFFER)
+            target = entry + MIN_RISK_REWARD_RATIO * (entry - stop_loss)
+            return {
+                "direction": "LONG",
+                "type": "启明星抄底",
+                "entry": entry,
+                "stop_loss": stop_loss,
+                "target": target,
+                "reason": "三K线形成启明星形态，放量确认，尝试抄底",
+                "mnemonic": "下跌阴线后星线，再收阳线过一半，放量跟进抄底单"
+            }
+        return None
+
+    def check_bullish_engulfing(self):
+        """看涨吞没：前阴后阳，阳线完全覆盖前阴实体"""
+        if len(self.df) < 2:
+            return None
+        k1 = self.df.iloc[-2]
+        k2 = self.latest
+        if (k1["close"] < k1["open"] and  # 前一根阴线
+            k2["close"] > k2["open"] and  # 当前阳线
+            k2["open"] < k1["close"] and  # 阳线开盘低于前阴收盘
+            k2["close"] > k1["open"] and  # 阳线收盘高于前阴开盘
+            k2["volume_ratio"] >= 1.3):  # 放量确认
+            entry = k2["close"]
+            stop_loss = min(k1["low"], k2["low"]) * (1 - STOP_BUFFER)
+            target = entry + MIN_RISK_REWARD_RATIO * (entry - stop_loss)
+            return {
+                "direction": "LONG",
+                "type": "看涨吞没",
+                "entry": entry,
+                "stop_loss": stop_loss,
+                "target": target,
+                "reason": "阳线完全覆盖前阴线，放量反转",
+                "mnemonic": "阴线之后阳吞没，放量跟进做多单"
+            }
+        return None
+
+    def check_evening_star(self):
+        """黄昏星形态：上涨后出现，看跌反转"""
+        if len(self.df) < 3:
+            return None
+        k1 = self.df.iloc[-3]
+        k2 = self.df.iloc[-2]
+        k3 = self.latest
+        if (k1["close"] > k1["open"] and  # 第一根阳线
+            abs(k2["close"] - k2["open"]) < (max(k2["open"], k2["close"]) - min(k2["open"], k2["close"])) * 0.5 and  # 第二根星线
+            k3["close"] < k3["open"] and  # 第三根阴线
+            k3["close"] < (k1["open"] + k1["close"]) / 2 and  # 跌破第一根实体一半
+            k3["volume_ratio"] >= 1.2):
+            entry = k3["close"]
+            stop_loss = max(k1["high"], k2["high"], k3["high"]) * (1 + STOP_BUFFER)
+            target = entry - MIN_RISK_REWARD_RATIO * (stop_loss - entry)
+            return {
+                "direction": "SHORT",
+                "type": "黄昏星做空",
+                "entry": entry,
+                "stop_loss": stop_loss,
+                "target": target,
+                "reason": "三K线形成黄昏星形态，放量确认",
+                "mnemonic": "上涨阳线后星线，再收阴线破一半，放量跟进做空单"
+            }
+        return None
+
+    def check_bearish_engulfing_new(self):
+        """看跌吞没：前阳后阴，阴线完全覆盖前阳实体"""
+        if len(self.df) < 2:
+            return None
+        k1 = self.df.iloc[-2]
+        k2 = self.latest
+        if (k1["close"] > k1["open"] and  # 前一根阳线
+            k2["close"] < k2["open"] and  # 当前阴线
+            k2["open"] > k1["close"] and  # 阴线开盘高于前阳收盘
+            k2["close"] < k1["open"] and  # 阴线收盘低于前阳开盘
+            k2["volume_ratio"] >= 1.3):
+            entry = k2["close"]
+            stop_loss = max(k1["high"], k2["high"]) * (1 + STOP_BUFFER)
+            target = entry - MIN_RISK_REWARD_RATIO * (stop_loss - entry)
+            return {
+                "direction": "SHORT",
+                "type": "看跌吞没",
+                "entry": entry,
+                "stop_loss": stop_loss,
+                "target": target,
+                "reason": "阴线完全覆盖前阳线，放量反转",
+                "mnemonic": "阳线之后阴吞没，放量跟进做空单"
+            }
+        return None
+
     def get_all_signals(self):
         """获取唯一信号 - 解决冲突"""
-        long_funcs = [self.check_trend_callback_long, self.check_trap_long, self.check_breakout_long]
-        short_funcs = [self.check_trend_callback_short, self.check_trap_short, self.check_breakout_short]
+        long_funcs = [
+            self.check_trend_callback_long,
+            self.check_trap_long,
+            self.check_breakout_long,
+            # 新增形态信号
+            self.check_morning_star,
+            self.check_bullish_engulfing,
+        ]
+        short_funcs = [
+            self.check_trend_callback_short,
+            self.check_trap_short,
+            self.check_breakout_short,
+            # 新增形态信号
+            self.check_evening_star,
+            self.check_bearish_engulfing_new,
+        ]
         
         long_signals = [f() for f in long_funcs if f() is not None]
         short_signals = [f() for f in short_funcs if f() is not None]
