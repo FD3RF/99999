@@ -63,11 +63,11 @@ with st.sidebar:
     total_capital = st.number_input("总资金(U)", min_value=100, value=10000, step=1000)
     risk_percent = st.slider("单笔风险(%)", 0.5, 5.0, MAX_RISK_PER_TRADE*100, 0.5) / 100
     
-    # 语音播报开关
+    # 语音播报开关（折叠）
     st.markdown("---")
-    st.subheader("🔊 语音播报")
-    enable_voice = st.checkbox("开启语音提醒", value=True)
-    voice_interval = st.slider("播报间隔(分钟)", 1, 30, 5)
+    with st.expander("🔊 语音播报设置"):
+        enable_voice = st.checkbox("开启语音提醒", value=True)
+        voice_interval = st.slider("播报间隔(分钟)", 1, 30, 5)
     
     st.markdown("---")
     st.subheader("📜 交易口诀")
@@ -89,6 +89,7 @@ if "trade_history" not in st.session_state:
     st.session_state.last_trade_day = datetime.now().date()
     st.session_state.last_voice_time = None
     st.session_state.last_signal_text = ""
+    st.session_state.spoken_signals = []
 
 # 主界面
 col1, col2 = st.columns([2, 1])
@@ -166,22 +167,17 @@ while True:
                 macd_colors = ['red' if val >= 0 else 'green' for val in df["macd_hist"]]
                 fig.add_trace(go.Bar(x=df["timestamp"], y=df["macd_hist"], marker_color=macd_colors, showlegend=False), row=3, col=1)
                 
-                fig.update_layout(height=700, xaxis_rangeslider_visible=False, template="plotly_dark", hovermode="x unified")
+                fig.update_layout(height=600, xaxis_rangeslider_visible=False, template="plotly_dark", hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # K线详情
-                with st.expander("📋 当前K线详情"):
-                    lat = df.iloc[-1]
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("开盘", f"${lat['open']:.2f}")
-                    c2.metric("最高", f"${lat['high']:.2f}")
-                    c3.metric("最低", f"${lat['low']:.2f}")
-                    c4.metric("收盘", f"${lat['close']:.2f}")
-                    c5, c6, c7, c8 = st.columns(4)
-                    c5.metric("成交量", f"{lat['volume']:.0f}")
-                    c6.metric("量能状态", lat['volume_status'])
-                    c7.metric("MACD柱", f"{lat['macd_hist']:.4f}")
-                    c8.metric("K线形态", lat.get('body', 0) > 0 and "普通" or "十字星")
+
+                # K线详情精简展示 - 整合到K线图下方
+                lat = df.iloc[-1]
+                k1, k2, k3, k4, k5 = st.columns(5)
+                k1.metric("开盘", f"${lat['open']:.2f}")
+                k2.metric("最高", f"${lat['high']:.2f}")
+                k3.metric("最低", f"${lat['low']:.2f}")
+                k4.metric("收盘", f"${lat['close']:.2f}")
+                k5.metric("成交量", f"{lat['volume']:.0f}", delta=lat['volume_status'])
 
             with col2:
                 st.markdown("#### 🎯 AI交易信号")
@@ -221,11 +217,32 @@ while True:
                                 <p>{sig['reason']}</p>
                             </div>
                             """, unsafe_allow_html=True)
-                        
+
+                        # 语音播报（带去重机制）
+                        if sig["direction"] in ["LONG", "SHORT"] and enable_voice:
+                            signal_id = f"{sig['type']}_{sig['entry']:.2f}_{sig['direction']}"
+                            if signal_id not in st.session_state.spoken_signals:
+                                # 添加到已播报列表
+                                st.session_state.spoken_signals.append(signal_id)
+                                if len(st.session_state.spoken_signals) > 50:
+                                    st.session_state.spoken_signals = st.session_state.spoken_signals[-50:]
+                                # 构造播报文本
+                                direction_text = "做多" if sig["direction"] == "LONG" else "做空"
+                                speech_text = f"注意，{direction_text}信号，{sig['type']}，入场价{sig['entry']:.2f}，止损{sig['stop_loss']:.2f}，止盈{sig['target']:.2f}"
+                                # 触发语音播报
+                                st.components.v1.html(f"""
+                                <script>
+                                    var utterance = new SpeechSynthesisUtterance("{speech_text}");
+                                    utterance.lang = 'zh-CN';
+                                    utterance.rate = 1.0;
+                                    window.speechSynthesis.speak(utterance);
+                                </script>
+                                """, height=0)
+
                         # 记录信号
                         if sig["direction"] in ["LONG", "SHORT"]:
                             now = datetime.now()
-                            if (not st.session_state.last_signal_time or 
+                            if (not st.session_state.last_signal_time or
                                 (now - st.session_state.last_signal_time).seconds > 300 or
                                 (st.session_state.trade_history and st.session_state.trade_history[-1]["type"] != sig["type"])):
                                 st.session_state.trade_history.append({
@@ -237,31 +254,30 @@ while True:
                                 st.session_state.last_signal_time = now
                 else:
                     st.info("⏳ 暂无信号，等待市场条件...")
-                
-                st.markdown("---")
-                st.markdown("#### 💼 仓位计算")
-                if signals and signals[0]["direction"] in ["LONG", "SHORT"]:
-                    sig = signals[0]
-                    stop_dist = abs(sig["entry"] - sig["stop_loss"])
-                    max_loss = total_capital * risk_percent
-                    position = max_loss / (stop_dist * point_value) if stop_dist > 0 else 0
-                    st.metric("建议仓位", f"{position:.1f} 张")
-                    st.metric("最大亏损", f"${max_loss:.0f}")
-                else:
-                    st.info("等待信号...")
-                
-                st.markdown("---")
-                st.markdown("#### 📡 系统状态")
-                st.success(f"更新时间: {datetime.now().strftime('%H:%M:%S')}")
-                st.info(f"K线数量: {len(df)}")
-                
-                # 风控
-                st.markdown("#### ⚠️ 风控")
+
+                # 精简布局：仓位和系统状态放一行
                 col_a, col_b = st.columns(2)
-                col_a.metric("连亏", st.session_state.consecutive_losses)
-                col_b.metric("日亏", st.session_state.daily_loss_count)
-                
-                # 信号历史
+                with col_a:
+                    st.markdown("**💼 仓位**")
+                    if signals and signals[0]["direction"] in ["LONG", "SHORT"]:
+                        sig = signals[0]
+                        stop_dist = abs(sig["entry"] - sig["stop_loss"])
+                        max_loss = total_capital * risk_percent
+                        position = max_loss / (stop_dist * point_value) if stop_dist > 0 else 0
+                        st.metric("建议仓位", f"{position:.1f} 张")
+                        st.caption(f"最大亏损: ${max_loss:.0f}")
+                    else:
+                        st.caption("等待信号...")
+
+                with col_b:
+                    st.markdown("**📡 系统**")
+                    st.caption(f"更新: {datetime.now().strftime('%H:%M:%S')}")
+                    st.caption(f"K线: {len(df)}")
+
+                # 风控状态小字展示
+                st.caption(f"⚠️ 连亏 {st.session_state.consecutive_losses} | 日亏 {st.session_state.daily_loss_count}")
+
+                # 信号历史（可选展开）
                 if st.session_state.trade_history:
                     with st.expander("📋 信号记录"):
                         for t in st.session_state.trade_history[-5:]:
