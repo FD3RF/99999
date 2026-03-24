@@ -1,13 +1,12 @@
 # data_fetcher.py
 import requests
 import pandas as pd
-import streamlit as st
+import time
 from datetime import datetime
 from config import KLINE_LIMIT
 
-@st.cache_data(ttl=60)
 def fetch_eth_klines(limit=KLINE_LIMIT):
-    """获取ETH/USDT K线数据 - 多数据源智能切换"""
+    """获取ETH/USDT K线数据 - 多数据源智能切换（移除模块级缓存装饰器）"""
     
     # 按顺序尝试，成功则返回（国内源优先）
     sources = [
@@ -21,13 +20,31 @@ def fetch_eth_klines(limit=KLINE_LIMIT):
     
     for name, fetch_func, lim in sources:
         try:
-            df = fetch_func(lim)
+            # 修复：添加指数退避重试
+            df = _fetch_with_retry(fetch_func, lim, name)
             if df is not None and len(df) > 10:
                 return df
-        except:
-            pass
+        except Exception as e:
+            # 修复：记录具体错误而非静默失败
+            print(f"[{name}] 数据获取失败: {str(e)}")
+            continue
     
-    st.error("数据获取失败: 所有数据源超时")
+    return None
+
+def _fetch_with_retry(fetch_func, limit, source_name, max_retries=2, base_delay=1):
+    """带指数退避的重试机制"""
+    for attempt in range(max_retries + 1):
+        try:
+            df = fetch_func(limit)
+            if df is not None and len(df) > 0:
+                return df
+        except (requests.RequestException, requests.Timeout) as e:
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)  # 指数退避: 1s, 2s
+                print(f"[{source_name}] 第{attempt+1}次失败，{delay}秒后重试: {str(e)}")
+                time.sleep(delay)
+            else:
+                raise  # 最后一次失败抛出异常
     return None
 
 def _fetch_mexc(limit):

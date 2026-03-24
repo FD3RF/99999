@@ -17,9 +17,11 @@ def calculate_macd(df):
     return df
 
 def calculate_volume_metrics(df):
-    """计算成交量指标"""
-    df["volume_ma20"] = df["volume"].rolling(window=VOLUME_MA_PERIOD).mean()
-    df["volume_ratio"] = df["volume"] / df["volume_ma20"]
+    # 成交量指标 - 修复：处理NaN和除以0
+    df["volume_ma20"] = df["volume"].rolling(window=VOLUME_MA_PERIOD, min_periods=1).mean()
+    # 避免除以0，使用clip限制最小值
+    df["volume_ratio"] = df["volume"] / df["volume_ma20"].clip(lower=df["volume"].max() * 0.001)
+    df["volume_ratio"] = df["volume_ratio"].fillna(1.0)  # 填充NaN为1.0
     conditions = [
         df["volume_ratio"] >= VOLUME_RATIO_PANIC,
         df["volume_ratio"] >= VOLUME_RATIO_SIGNIFICANT,
@@ -32,14 +34,15 @@ def calculate_volume_metrics(df):
     return df
 
 def find_swing_points(df, window=SWING_WINDOW):
-    """识别波段高低点"""
+    # 波段高低点检测 - 修复：使用位置索引避免标签问题
+    df = df.reset_index(drop=True)  # 重置索引确保位置索引正确
     df["swing_high"] = False
     df["swing_low"] = False
     for i in range(window, len(df) - window):
-        if df["high"].iloc[i] == max(df["high"].iloc[i-window:i+window+1]):
-            df.loc[df.index[i], "swing_high"] = True
-        if df["low"].iloc[i] == min(df["low"].iloc[i-window:i+window+1]):
-            df.loc[df.index[i], "swing_low"] = True
+        if df["high"].iloc[i] == df["high"].iloc[i-window:i+window+1].max():
+            df.loc[i, "swing_high"] = True
+        if df["low"].iloc[i] == df["low"].iloc[i-window:i+window+1].min():
+            df.loc[i, "swing_low"] = True
     return df
 
 def calculate_support_resistance(df, lookback=20):
@@ -58,15 +61,17 @@ def identify_candlestick_patterns(df):
     df["upper_shadow"] = df["high"] - df[["close", "open"]].max(axis=1)
     df["lower_shadow"] = df[["close", "open"]].min(axis=1) - df["low"]
 
-    avg_body = df["body"].rolling(10).mean()
-
-    # 见底反转
+    # 十字星 - 修复：避免avg_body为0导致全为十字星
+    avg_body_nonzero = df["body"].rolling(window=10, min_periods=1).mean().replace(0, np.nan)
+    avg_body_nonzero = avg_body_nonzero.fillna(df["body"].abs().mean())  # 填充为全局平均
+    df["doji"] = df["body"] <= avg_body_nonzero * DOJI_RATIO
+    df["doji"] = df["doji"].fillna(False)
+    # 锤子线 - 修复：阳线锤子也有效，放宽条件
     df["hammer"] = (
-        (df["close"] < df["open"].shift(1)) &
-        (df["lower_shadow"] >= df["body"] * LONG_SHADOW_RATIO) &
-        (df["upper_shadow"] <= df["body"] * 0.3)
+        (df["lower_shadow"] >= df["body"].abs() * LONG_SHADOW_RATIO) &
+        (df["upper_shadow"] <= df["body"].abs() * 0.3) &
+        (df["lower_shadow"] >= df["high"] - df[["open", "close"]].max(axis=1)) * 2
     )
-    df["doji"] = df["body"] < avg_body * 0.1
     df["long_lower_shadow"] = df["lower_shadow"] >= df["body"] * LONG_SHADOW_RATIO
     df["piercing"] = (
         (df["close"] > df["open"]) &
@@ -90,15 +95,15 @@ def identify_candlestick_patterns(df):
         (df["close"] < (df["open"].shift(1) + df["close"].shift(1)) / 2)
     )
 
-    # 持续形态
+    # 持续形态 - 使用同样的 avg_body_nonzero
     df["big_bull"] = (
         (df["close"] > df["open"]) &
-        (df["body"] > avg_body * 1.5) &
+        (df["body"] > avg_body_nonzero * 1.5) &
         (df["upper_shadow"] < df["body"] * 0.1)
     )
     df["big_bear"] = (
         (df["close"] < df["open"]) &
-        (df["body"] > avg_body * 1.5) &
+        (df["body"] > avg_body_nonzero * 1.5) &
         (df["lower_shadow"] < df["body"] * 0.1)
     )
 
