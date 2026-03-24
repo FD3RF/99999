@@ -188,9 +188,6 @@ while True:
                     engine = SignalEngine(df, support, resistance)
                     signals = engine.get_all_signals()
                     
-                    # 语音播报
-                    voice_text = generate_speech_text(signals, current_price, "neutral")
-                    
                     if signals:
                         for sig in signals:
                             if sig["direction"] == "LONG":

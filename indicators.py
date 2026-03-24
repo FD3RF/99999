@@ -34,8 +34,8 @@ def calculate_volume_metrics(df):
     return df
 
 def find_swing_points(df, window=SWING_WINDOW):
-    # 波段高低点检测 - 修复：使用位置索引避免标签问题
-    df = df.reset_index(drop=True)  # 重置索引确保位置索引正确
+    """波段高低点检测 - 修复：使用inplace重置索引确保在原DataFrame上操作"""
+    df.reset_index(drop=True, inplace=True)  # 修复：使用inplace=True直接修改原DataFrame
     df["swing_high"] = False
     df["swing_low"] = False
     for i in range(window, len(df) - window):
@@ -66,11 +66,11 @@ def identify_candlestick_patterns(df):
     avg_body_nonzero = avg_body_nonzero.fillna(df["body"].abs().mean())  # 填充为全局平均
     df["doji"] = df["body"] <= avg_body_nonzero * DOJI_RATIO
     df["doji"] = df["doji"].fillna(False)
-    # 锤子线 - 修复：阳线锤子也有效，放宽条件
+    # 锤子线 - 修复：阳线锤子也有效，修复括号优先级
     df["hammer"] = (
         (df["lower_shadow"] >= df["body"].abs() * LONG_SHADOW_RATIO) &
         (df["upper_shadow"] <= df["body"].abs() * 0.3) &
-        (df["lower_shadow"] >= df["high"] - df[["open", "close"]].max(axis=1)) * 2
+        (df["lower_shadow"] >= (df["high"] - df[["open", "close"]].max(axis=1)) * 2)  # 修复：括号位置
     )
     df["long_lower_shadow"] = df["lower_shadow"] >= df["body"] * LONG_SHADOW_RATIO
     df["piercing"] = (

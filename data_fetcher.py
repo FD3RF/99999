@@ -53,20 +53,29 @@ def _fetch_mexc(limit):
     params = {"symbol": "ETHUSDT", "interval": "5m", "limit": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()  # 检查HTTP错误
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[MEXC] 数据解析或HTTP错误: {e}")
+        return None
     
     if data and isinstance(data, list) and len(data) > 0:
         records = []
         for k in data:
-            records.append({
-                "timestamp": k[0],
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5])
-            })
+            try:
+                records.append({
+                    "timestamp": k[0],
+                    "open": float(k[1]),
+                    "high": float(k[2]),
+                    "low": float(k[3]),
+                    "close": float(k[4]),
+                    "volume": float(k[5])
+                })
+            except (IndexError, ValueError) as e:
+                print(f"[MEXC] 数据格式错误: {e}, k={k}")
+                continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -80,21 +89,30 @@ def _fetch_gate(limit):
     params = {"currency_pair": "ETH_USDT", "interval": "5m", "limit": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[Gate.io] 数据解析或HTTP错误: {e}")
+        return None
     
     if data and isinstance(data, list) and len(data) > 0:
         records = []
         for k in data:
             if len(k) >= 6:
-                records.append({
-                    "timestamp": int(k[0]),
-                    "open": float(k[5]),
-                    "high": float(k[3]),
-                    "low": float(k[4]),
-                    "close": float(k[2]),
-                    "volume": float(k[1])
-                })
+                try:
+                    records.append({
+                        "timestamp": int(k[0]),
+                        "open": float(k[5]),
+                        "high": float(k[3]),
+                        "low": float(k[4]),
+                        "close": float(k[2]),
+                        "volume": float(k[1])
+                    })
+                except (IndexError, ValueError) as e:
+                    print(f"[Gate.io] 数据格式错误: {e}, k={k}")
+                    continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
@@ -108,21 +126,30 @@ def _fetch_kucoin(limit):
     params = {"type": "5min", "symbol": "ETH-USDT", "size": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[KuCoin] 数据解析或HTTP错误: {e}")
+        return None
     
     if data.get("code") == "200000" and data.get("data"):
         klines = data["data"]
         records = []
         for k in klines:
-            records.append({
-                "timestamp": int(k[0]) * 1000,
-                "open": float(k[1]),
-                "high": float(k[3]),
-                "low": float(k[4]),
-                "close": float(k[2]),
-                "volume": float(k[5])
-            })
+            try:
+                records.append({
+                    "timestamp": int(k[0]) * 1000,
+                    "open": float(k[1]),
+                    "high": float(k[3]),
+                    "low": float(k[4]),
+                    "close": float(k[2]),
+                    "volume": float(k[5])
+                })
+            except (IndexError, ValueError) as e:
+                print(f"[KuCoin] 数据格式错误: {e}, k={k}")
+                continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -136,21 +163,30 @@ def _fetch_coinex(limit):
     params = {"market": "ETHUSDT", "type": "5min", "limit": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[CoinEx] 数据解析或HTTP错误: {e}")
+        return None
     
     if data.get("code") == 0 and data.get("data"):
         klines = data["data"]
         records = []
         for k in klines:
-            records.append({
-                "timestamp": int(k[0]) * 1000,
-                "open": float(k[3]),
-                "high": float(k[2]),
-                "low": float(k[4]),
-                "close": float(k[1]),
-                "volume": float(k[5])
-            })
+            try:
+                records.append({
+                    "timestamp": int(k[0]) * 1000,
+                    "open": float(k[3]),
+                    "high": float(k[2]),
+                    "low": float(k[4]),
+                    "close": float(k[1]),
+                    "volume": float(k[5])
+                })
+            except (IndexError, ValueError) as e:
+                print(f"[CoinEx] 数据格式错误: {e}, k={k}")
+                continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -164,22 +200,31 @@ def _fetch_okx(limit):
     params = {"instId": "ETH-USDT", "bar": "5m", "limit": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[OKX] 数据解析或HTTP错误: {e}")
+        return None
     
     if data.get("code") == "0" and data.get("data"):
         klines = data["data"]
         records = []
         for k in klines:
             if len(k) >= 6:
-                records.append({
-                    "timestamp": int(k[0]),
-                    "open": float(k[1]),
-                    "high": float(k[2]),
-                    "low": float(k[3]),
-                    "close": float(k[4]),
-                    "volume": float(k[5])
-                })
+                try:
+                    records.append({
+                        "timestamp": int(k[0]),
+                        "open": float(k[1]),
+                        "high": float(k[2]),
+                        "low": float(k[3]),
+                        "close": float(k[4]),
+                        "volume": float(k[5])
+                    })
+                except (IndexError, ValueError) as e:
+                    print(f"[OKX] 数据格式错误: {e}, k={k}")
+                    continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -193,20 +238,29 @@ def _fetch_binance(limit):
     params = {"symbol": "ETHUSDT", "interval": "5m", "limit": limit}
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    response = requests.get(url, params=params, headers=headers, timeout=8)
-    data = response.json()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.exceptions.JSONDecodeError, requests.exceptions.HTTPError) as e:
+        print(f"[Binance] 数据解析或HTTP错误: {e}")
+        return None
     
     if data and len(data) > 0:
         records = []
         for k in data:
-            records.append({
-                "timestamp": k[0],
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5])
-            })
+            try:
+                records.append({
+                    "timestamp": k[0],
+                    "open": float(k[1]),
+                    "high": float(k[2]),
+                    "low": float(k[3]),
+                    "close": float(k[4]),
+                    "volume": float(k[5])
+                })
+            except (IndexError, ValueError) as e:
+                print(f"[Binance] 数据格式错误: {e}, k={k}")
+                continue
         
         df = pd.DataFrame(records)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")

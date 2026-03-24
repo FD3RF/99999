@@ -452,12 +452,11 @@ class SignalEngine:
         return None
 
     def get_all_signals(self):
-        """获取唯一信号 - 解决冲突"""
+        """获取唯一信号 - 修复：避免重复调用信号函数"""
         long_funcs = [
             self.check_trend_callback_long,
             self.check_trap_long,
             self.check_breakout_long,
-            # 新增形态信号
             self.check_morning_star,
             self.check_bullish_engulfing,
         ]
@@ -465,13 +464,22 @@ class SignalEngine:
             self.check_trend_callback_short,
             self.check_trap_short,
             self.check_breakout_short,
-            # 新增形态信号
             self.check_evening_star,
             self.check_bearish_engulfing_new,
         ]
         
-        long_signals = [f() for f in long_funcs if f() is not None]
-        short_signals = [f() for f in short_funcs if f() is not None]
+        # 修复：只调用一次信号函数，避免重复计算
+        long_signals = []
+        for f in long_funcs:
+            result = f()
+            if result is not None:
+                long_signals.append(result)
+        
+        short_signals = []
+        for f in short_funcs:
+            result = f()
+            if result is not None:
+                short_signals.append(result)
         
         # 计算各方向信号强度
         long_strength = sum(self._calculate_signal_strength("LONG") for _ in long_signals)
