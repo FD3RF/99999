@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 from config import *
 
+# 本地覆盖：趋势判断参数（避免config中缺失）
+TREND_CHECK_WINDOW = 10
+TREND_MATCH_RATIO = 0.7
+
 class SignalEngine:
     """交易信号识别引擎 - 无冲突版本"""
 
@@ -33,17 +37,22 @@ class SignalEngine:
         return self.latest["volume_ratio"] >= threshold
 
     def _check_trend(self):
-        if len(self.df) < 10:
+        """检查趋势 - 修复：放宽完美趋势要求，允许70%K线满足趋势"""
+        if len(self.df) < TREND_CHECK_WINDOW:
             return "unknown"
-        highs = self.df["high"].iloc[-10:].values
-        lows = self.df["low"].iloc[-10:].values
-        uptrend = all(highs[i] >= highs[i-1] for i in range(1, len(highs))) and \
-                  all(lows[i] >= lows[i-1] for i in range(1, len(lows)))
-        downtrend = all(highs[i] <= highs[i-1] for i in range(1, len(highs))) and \
-                    all(lows[i] <= lows[i-1] for i in range(1, len(lows)))
-        if uptrend:
+        highs = self.df["high"].iloc[-TREND_CHECK_WINDOW:].values
+        lows = self.df["low"].iloc[-TREND_CHECK_WINDOW:].values
+        
+        # 计算上升趋势匹配数（高点和低点都在抬高）
+        up_matches = sum(1 for i in range(1, len(highs)) if highs[i] >= highs[i-1] and lows[i] >= lows[i-1])
+        # 计算下降趋势匹配数
+        down_matches = sum(1 for i in range(1, len(highs)) if highs[i] <= highs[i-1] and lows[i] <= lows[i-1])
+        
+        threshold = int((TREND_CHECK_WINDOW - 1) * TREND_MATCH_RATIO)
+        
+        if up_matches >= threshold:
             return "uptrend"
-        elif downtrend:
+        elif down_matches >= threshold:
             return "downtrend"
         return "ranging"
 
@@ -89,7 +98,7 @@ class SignalEngine:
         return score
 
     def check_trend_callback_long(self):
-        """趋势回调做多"""
+        """趋势回调做多 - 修复：放宽条件，允许灵活匹配"""
         if len(self.df) < 10 or self._check_trend() != "uptrend":
             return None
         if not self._is_volume_shrink(3):
@@ -97,14 +106,30 @@ class SignalEngine:
         recent_low = self._get_recent_swing_low(5)
         if self.latest["low"] < recent_low * (1 - STOP_BUFFER):
             return None
-        if not (self.latest["dif"] > 0 and self.latest["golden_cross"]):
+        
+        # MACD条件放宽：DIF>0 或 金叉（原为必须同时满足）
+        macd_ok = self.latest["dif"] > 0 or self.latest["golden_cross"]
+        if not macd_ok:
             return None
-        kline_ok = self.latest.get("hammer") or self.latest.get("doji") or self.latest.get("long_lower_shadow")
+            
+        # K线形态放宽：增加更多形态识别（原仅锤子/十字星/长下影）
+        kline_ok = (self.latest.get("hammer") or 
+                    self.latest.get("doji") or 
+                    self.latest.get("long_lower_shadow") or
+                    self.latest.get("piercing") or
+                    self.latest.get("bullish_engulfing"))
         if not kline_ok:
             return None
-        if not (self.latest["close"] > self.latest["open"] and self._is_volume_expanding(VOLUME_RATIO_MODERATE) and self.latest["close"] > self.df["high"].iloc[-2]):
+            
+        # 价格行为放宽：阳线 且 (放量 或 破前高)（原必须同时满足）
+        price_ok = (self.latest["close"] > self.latest["open"] and 
+                    (self._is_volume_expanding(VOLUME_RATIO_MODERATE) or 
+                     self.latest["close"] > self.df["high"].iloc[-2]))
+        if not price_ok:
             return None
-        if not (self.latest["macd_hist"] > 0 and self.latest["macd_hist"] > self.df["macd_hist"].iloc[-2]):
+            
+        # MACD柱放宽：>0 即可（原要求比前一根放大）
+        if not (self.latest["macd_hist"] > 0):
             return None
         
         entry = self.latest["close"]
@@ -117,25 +142,29 @@ class SignalEngine:
             "entry": entry,
             "stop_loss": stop_loss,
             "target": target,
-            "reason": f"上升趋势缩量回踩，MACD金叉，{self._get_kline_pattern_names()}，放量突破",
-            "mnemonic": "缩量回踩底不破，底背离/金叉等放量；放量起涨破前高，红柱放大直接多。"
+            "reason": f"上升趋势缩量回踩，MACD金叉/DIF>0，{self._get_kline_pattern_names()}，放量/破高",
+            "mnemonic": "缩量回踩底不破，底背离/金叉等放量；放量起涨破前高，红柱出现直接多。"
         }
 
     def check_trap_long(self):
-        """陷阱诱空做多"""
+        """陷阱诱空做多 - 修复：放宽条件"""
         if len(self.df) < 5:
             return None
         recent_low = self._get_recent_swing_low(5)
-        if abs(self.latest["low"] - recent_low) / recent_low > 0.01:
+        if abs(self.latest["low"] - recent_low) / recent_low > 0.015:  # 放宽到1.5%，原1%
             return None
         prev = self.df.iloc[-2]
-        if not (prev.get("volume_ratio", 0) >= VOLUME_RATIO_PANIC and prev["close"] < prev["open"]):
+        # 放量下跌条件放宽：成交量>2倍 或 恐慌量（原必须>3倍）
+        if not (prev.get("volume_ratio", 0) >= VOLUME_RATIO_SIGNIFICANT and prev["close"] < prev["open"]):
             return None
         if prev["low"] < recent_low * (1 - STOP_BUFFER):
             return None
-        if not (prev.get("long_lower_shadow") or prev.get("hammer")):
+        # K线形态放宽：增加更多见底形态
+        if not (prev.get("long_lower_shadow") or prev.get("hammer") or prev.get("doji") or prev.get("piercing")):
             return None
-        if not (self.latest["close"] > self.latest["open"] and self.latest["close"] > (prev["close"] + prev["open"]) / 2):
+        # 当前K线确认放宽：阳线 或 收复前阴一半（原必须同时满足）
+        if not (self.latest["close"] > self.latest["open"] or 
+                self.latest["close"] > (prev["close"] + prev["open"]) / 2):
             return None
         
         entry = self.latest["close"]
@@ -153,7 +182,7 @@ class SignalEngine:
         }
 
     def check_breakout_long(self):
-        """横盘突破做多"""
+        """横盘突破做多 - 修复：放宽横盘条件和突破条件"""
         if len(self.df) < RANGE_BAR_COUNT + 5:
             return None
         range_df = self.df.iloc[-RANGE_BAR_COUNT-1:-1]
@@ -161,15 +190,19 @@ class SignalEngine:
         range_low = range_df["low"].min()
         avg_price = (range_high + range_low) / 2
         
-        if self.latest["close"] > avg_price * 1.1:
-            return None
+        # 修复：移除不合理的1.1倍限制（原逻辑自相矛盾）
+        # 横盘区间高度检查
         if (range_high - range_low) / avg_price > RANGE_HEIGHT_RATIO:
             return None
-        if range_df["volume_ratio"].mean() > VOLUME_RATIO_SHRINK_50:
+        # 缩量检查放宽：均量<90%（已改配置）
+        if range_df["volume_ratio"].mean() > VOLUME_RATIO_SHRINK_60:
             return None
+        # MACD粘合检查
         if abs(range_df["dif"].mean() - range_df["dea"].mean()) / avg_price > MACD_CLOSE_RATIO:
             return None
-        if not (self.latest["close"] > range_high and self._is_volume_expanding(VOLUME_RATIO_SIGNIFICANT) and self.latest["macd_hist"] > 0):
+        # 突破条件：收盘破高 且 (放量显著 或 MACD红柱)（放宽）
+        if not (self.latest["close"] > range_high and 
+                (self._is_volume_expanding(VOLUME_RATIO_SIGNIFICANT) or self.latest["macd_hist"] > 0)):
             return None
         
         entry = self.latest["close"]
@@ -187,7 +220,7 @@ class SignalEngine:
         }
 
     def check_trend_callback_short(self):
-        """趋势反弹做空"""
+        """趋势反弹做空 - 修复：放宽条件，与做多对称"""
         if len(self.df) < 10 or self._check_trend() != "downtrend":
             return None
         if not self._is_volume_shrink(3):
@@ -195,14 +228,30 @@ class SignalEngine:
         recent_high = self._get_recent_swing_high(5)
         if self.latest["high"] > recent_high * (1 + STOP_BUFFER):
             return None
-        if not (self.latest["dif"] < 0 and self.latest["death_cross"]):
+        
+        # MACD条件放宽：DIF<0 或 死叉（原为必须同时满足）
+        macd_ok = self.latest["dif"] < 0 or self.latest["death_cross"]
+        if not macd_ok:
             return None
-        kline_ok = self.latest.get("shooting_star") or self.latest.get("long_upper_shadow") or self.latest.get("gravestone")
+            
+        # K线形态放宽：增加更多见顶形态
+        kline_ok = (self.latest.get("shooting_star") or 
+                    self.latest.get("long_upper_shadow") or 
+                    self.latest.get("gravestone") or
+                    self.latest.get("dark_cloud") or
+                    self.latest.get("bearish_engulfing"))
         if not kline_ok:
             return None
-        if not (self.latest["close"] < self.latest["open"] and self._is_volume_expanding(VOLUME_RATIO_MODERATE) and self.latest["close"] < self.df["low"].iloc[-2]):
+            
+        # 价格行为放宽：阴线 且 (放量 或 破前低)（原必须同时满足）
+        price_ok = (self.latest["close"] < self.latest["open"] and 
+                    (self._is_volume_expanding(VOLUME_RATIO_MODERATE) or 
+                     self.latest["close"] < self.df["low"].iloc[-2]))
+        if not price_ok:
             return None
-        if not (self.latest["macd_hist"] < 0 and abs(self.latest["macd_hist"]) > abs(self.df["macd_hist"].iloc[-2])):
+            
+        # MACD柱放宽：<0 即可（原要求比前一根放大）
+        if not (self.latest["macd_hist"] < 0):
             return None
         
         entry = self.latest["close"]
@@ -215,25 +264,29 @@ class SignalEngine:
             "entry": entry,
             "stop_loss": stop_loss,
             "target": target,
-            "reason": f"下降趋势缩量反弹不过前高，MACD死叉，{self._get_kline_pattern_names()}，放量跌破",
-            "mnemonic": "缩量反弹顶不过，顶背离/死叉等放量；放量下跌破前低，绿柱放大直接空。"
+            "reason": f"下降趋势缩量反弹不过前高，MACD死叉/DIF<0，{self._get_kline_pattern_names()}，放量/破低",
+            "mnemonic": "缩量反弹顶不过，顶背离/死叉等放量；放量下跌破前低，绿柱出现直接空。"
         }
 
     def check_trap_short(self):
-        """陷阱诱多做空"""
+        """陷阱诱多做空 - 修复：放宽条件"""
         if len(self.df) < 5:
             return None
         recent_high = self._get_recent_swing_high(5)
-        if abs(self.latest["high"] - recent_high) / recent_high > 0.01:
+        if abs(self.latest["high"] - recent_high) / recent_high > 0.015:  # 放宽到1.5%，原1%
             return None
         prev = self.df.iloc[-2]
-        if not (prev.get("volume_ratio", 0) >= VOLUME_RATIO_PANIC and prev["close"] > prev["open"]):
+        # 放量上涨条件放宽：成交量>2倍（原必须>3倍）
+        if not (prev.get("volume_ratio", 0) >= VOLUME_RATIO_SIGNIFICANT and prev["close"] > prev["open"]):
             return None
         if prev["high"] > recent_high * (1 + STOP_BUFFER):
             return None
-        if not (prev.get("long_upper_shadow") or prev.get("shooting_star")):
+        # K线形态放宽：增加更多见顶形态
+        if not (prev.get("long_upper_shadow") or prev.get("shooting_star") or prev.get("doji") or prev.get("dark_cloud")):
             return None
-        if not (self.latest["close"] < self.latest["open"] and self.latest["close"] < (prev["close"] + prev["open"]) / 2):
+        # 当前K线确认放宽：阴线 或 跌破前阳一半（原必须同时满足）
+        if not (self.latest["close"] < self.latest["open"] or 
+                self.latest["close"] < (prev["close"] + prev["open"]) / 2):
             return None
         
         entry = self.latest["close"]
@@ -251,7 +304,7 @@ class SignalEngine:
         }
 
     def check_breakout_short(self):
-        """横盘突破做空"""
+        """横盘突破做空 - 修复：放宽条件"""
         if len(self.df) < RANGE_BAR_COUNT + 5:
             return None
         range_df = self.df.iloc[-RANGE_BAR_COUNT-1:-1]
@@ -259,13 +312,16 @@ class SignalEngine:
         range_low = range_df["low"].min()
         avg_price = (range_high + range_low) / 2
 
-        if self.latest["close"] < avg_price * 0.9:
-            return None
+        # 修复：移除不合理的0.9倍限制
+        # 横盘区间高度检查
         if (range_high - range_low) / avg_price > RANGE_HEIGHT_RATIO:
             return None
-        if range_df["volume_ratio"].mean() > VOLUME_RATIO_SHRINK_50:
+        # 缩量检查放宽
+        if range_df["volume_ratio"].mean() > VOLUME_RATIO_SHRINK_60:
             return None
-        if not (self.latest["close"] < range_low and self._is_volume_expanding(VOLUME_RATIO_SIGNIFICANT) and self.latest["macd_hist"] < 0):
+        # 突破条件：收盘破低 且 (放量显著 或 MACD绿柱)（放宽）
+        if not (self.latest["close"] < range_low and 
+                (self._is_volume_expanding(VOLUME_RATIO_SIGNIFICANT) or self.latest["macd_hist"] < 0)):
             return None
 
         entry = self.latest["close"]
@@ -283,18 +339,23 @@ class SignalEngine:
         }
 
     def check_morning_star(self):
-        """启明星形态：下跌后出现，看涨反转"""
+        """启明星形态：修复BUG，简化条件"""
         if len(self.df) < 3:
             return None
         k1 = self.df.iloc[-3]
         k2 = self.df.iloc[-2]
         k3 = self.latest
+        
+        # 修复：原条件恒为False，改为实体小于前10根平均实体的30%
+        avg_body = self.df["body"].iloc[-10:].mean() if len(self.df) >= 10 else k1["body"]
+        k2_body_small = k2["body"] < avg_body * 0.3
+        
         # 条件：第一根阴线，第二根星线（实体小），第三根阳线收复
         if (k1["close"] < k1["open"] and  # 第一根阴线
-            abs(k2["close"] - k2["open"]) < (max(k2["open"], k2["close"]) - min(k2["open"], k2["close"])) * 0.5 and  # 第二根星线实体小
+            k2_body_small and  # 第二根星线实体小
             k3["close"] > k3["open"] and  # 第三根阳线
             k3["close"] > (k1["open"] + k1["close"]) / 2 and  # 收复第一根实体一半以上
-            k3["volume_ratio"] >= 1.2):  # 第三根温和放量
+            k3["volume_ratio"] >= 1.0):  # 第三根放量（放宽，原1.2）
             entry = k3["close"]
             stop_loss = min(k1["low"], k2["low"], k3["low"]) * (1 - STOP_BUFFER)
             target = entry + MIN_RISK_REWARD_RATIO * (entry - stop_loss)
@@ -310,7 +371,7 @@ class SignalEngine:
         return None
 
     def check_bullish_engulfing(self):
-        """看涨吞没：前阴后阳，阳线完全覆盖前阴实体"""
+        """看涨吞没：放宽成交量条件"""
         if len(self.df) < 2:
             return None
         k1 = self.df.iloc[-2]
@@ -319,7 +380,7 @@ class SignalEngine:
             k2["close"] > k2["open"] and  # 当前阳线
             k2["open"] < k1["close"] and  # 阳线开盘低于前阴收盘
             k2["close"] > k1["open"] and  # 阳线收盘高于前阴开盘
-            k2["volume_ratio"] >= 1.3):  # 放量确认
+            k2["volume_ratio"] >= 1.0):  # 放量放宽到1倍（原1.3）
             entry = k2["close"]
             stop_loss = min(k1["low"], k2["low"]) * (1 - STOP_BUFFER)
             target = entry + MIN_RISK_REWARD_RATIO * (entry - stop_loss)
@@ -335,17 +396,22 @@ class SignalEngine:
         return None
 
     def check_evening_star(self):
-        """黄昏星形态：上涨后出现，看跌反转"""
+        """黄昏星形态：修复BUG，简化条件"""
         if len(self.df) < 3:
             return None
         k1 = self.df.iloc[-3]
         k2 = self.df.iloc[-2]
         k3 = self.latest
+        
+        # 修复：原条件恒为False，改为实体小于前10根平均实体的30%
+        avg_body = self.df["body"].iloc[-10:].mean() if len(self.df) >= 10 else k1["body"]
+        k2_body_small = k2["body"] < avg_body * 0.3
+        
         if (k1["close"] > k1["open"] and  # 第一根阳线
-            abs(k2["close"] - k2["open"]) < (max(k2["open"], k2["close"]) - min(k2["open"], k2["close"])) * 0.5 and  # 第二根星线
+            k2_body_small and  # 第二根星线
             k3["close"] < k3["open"] and  # 第三根阴线
             k3["close"] < (k1["open"] + k1["close"]) / 2 and  # 跌破第一根实体一半
-            k3["volume_ratio"] >= 1.2):
+            k3["volume_ratio"] >= 1.0):  # 放宽，原1.2
             entry = k3["close"]
             stop_loss = max(k1["high"], k2["high"], k3["high"]) * (1 + STOP_BUFFER)
             target = entry - MIN_RISK_REWARD_RATIO * (stop_loss - entry)
@@ -361,7 +427,7 @@ class SignalEngine:
         return None
 
     def check_bearish_engulfing_new(self):
-        """看跌吞没：前阳后阴，阴线完全覆盖前阳实体"""
+        """看跌吞没：放宽成交量条件"""
         if len(self.df) < 2:
             return None
         k1 = self.df.iloc[-2]
@@ -370,7 +436,7 @@ class SignalEngine:
             k2["close"] < k2["open"] and  # 当前阴线
             k2["open"] > k1["close"] and  # 阴线开盘高于前阳收盘
             k2["close"] < k1["open"] and  # 阴线收盘低于前阳开盘
-            k2["volume_ratio"] >= 1.3):
+            k2["volume_ratio"] >= 1.0):  # 放量放宽到1倍（原1.3）
             entry = k2["close"]
             stop_loss = max(k1["high"], k2["high"]) * (1 + STOP_BUFFER)
             target = entry - MIN_RISK_REWARD_RATIO * (stop_loss - entry)

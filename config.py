@@ -21,24 +21,24 @@ VOLUME_MA_PERIOD = 20
 VOLUME_RATIO_PANIC = 3.0       # 巨量 > 3倍
 VOLUME_RATIO_SIGNIFICANT = 2.0 # 显著放量 > 2倍
 VOLUME_RATIO_MODERATE = 1.4    # 温和放量 > 1.4倍（放宽）
-VOLUME_RATIO_SHRINK_50 = 0.6   # 极度缩量 < 60%（放宽）
-VOLUME_RATIO_SHRINK_60 = 0.7   # 一般缩量 < 70%
+VOLUME_RATIO_SHRINK_50 = 0.85       # 极度缩量 < 85%（放宽，原0.6太严）
+VOLUME_RATIO_SHRINK_60 = 0.90       # 一般缩量 < 90%（放宽，原0.7太严）
 
 # K线形态参数
 LONG_SHADOW_RATIO = 2.0        # 影线长度 ≥ 实体2倍
 
 # 盈亏比要求
-MIN_RISK_REWARD_RATIO = 1.5    # 至少盈亏比1:1.5
+MIN_RISK_REWARD_RATIO = 1.2         # 至少盈亏比1:1.2（放宽，原1.5太严导致无信号）
 
 # 止损偏移量（相对于关键位）
 STOP_BUFFER = 0.0015           # 0.15% 的缓冲，收紧止损
 
 # 横盘定义
 RANGE_BAR_COUNT = 8            # 至少8根K线横盘
-RANGE_HEIGHT_RATIO = 0.008    # 区间高度小于价格0.8%（放宽）
+RANGE_HEIGHT_RATIO = 0.015          # 区间高度小于价格1.5%（放宽，原0.8%太窄）
 
 # MACD粘合阈值（相对价格）
-MACD_CLOSE_RATIO = 0.002       # DIF与DEA差值小于价格的0.2%（放宽）
+MACD_CLOSE_RATIO = 0.003            # DIF与DEA差值小于价格的0.3%（放宽，原0.2%）
 
 # 资金管理
 MAX_RISK_PER_TRADE = 0.02      # 单笔最大亏损 ≤ 2%
