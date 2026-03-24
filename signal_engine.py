@@ -18,15 +18,23 @@ class SignalEngine:
         self.prev = df.iloc[-2] if len(df) > 1 else None
 
     def _get_recent_swing_low(self, within=5):
+        """获取最近波段低点 - 修复：添加边界检查"""
         recent_swings = self.df[self.df["swing_low"]].tail(within)
         if len(recent_swings) > 0:
             return recent_swings.iloc[-1]["low"]
+        # 修复：确保有足够的K线数据
+        if len(self.df) <= within:
+            return self.df["low"].min()
         return self.df["low"].iloc[-within-1:-1].min()
 
     def _get_recent_swing_high(self, within=5):
+        """获取最近波段高点 - 修复：添加边界检查"""
         recent_swings = self.df[self.df["swing_high"]].tail(within)
         if len(recent_swings) > 0:
             return recent_swings.iloc[-1]["high"]
+        # 修复：确保有足够的K线数据
+        if len(self.df) <= within:
+            return self.df["high"].max()
         return self.df["high"].iloc[-within-1:-1].max()
 
     def _is_volume_shrink(self, periods=3):
@@ -34,7 +42,10 @@ class SignalEngine:
         return vol_ratio < VOLUME_RATIO_SHRINK_60
 
     def _is_volume_expanding(self, threshold=VOLUME_RATIO_MODERATE):
-        return self.latest["volume_ratio"] >= threshold
+        """检查成交量是否放大 - 修复：添加None检查"""
+        if self.latest is None:
+            return False
+        return self.latest.get("volume_ratio", 0) >= threshold
 
     def _check_trend(self):
         """检查趋势 - 修复：放宽完美趋势要求，允许70%K线满足趋势"""
@@ -70,7 +81,10 @@ class SignalEngine:
         return ", ".join(names) if names else "普通K线"
 
     def _calculate_signal_strength(self, direction):
-        """计算信号强度分数"""
+        """计算信号强度分数 - 修复：添加边界检查"""
+        if self.latest is None:
+            return 0
+        
         score = 0
         
         # 趋势匹配
@@ -79,10 +93,11 @@ class SignalEngine:
         elif direction == "SHORT" and self._check_trend() == "downtrend":
             score += 2
         
-        # MACD方向
-        if direction == "LONG" and self.latest["macd_hist"] > 0:
+        # MACD方向 - 修复：使用.get避免KeyError
+        macd_hist = self.latest.get("macd_hist", 0)
+        if direction == "LONG" and macd_hist > 0:
             score += 2
-        elif direction == "SHORT" and self.latest["macd_hist"] < 0:
+        elif direction == "SHORT" and macd_hist < 0:
             score += 2
         
         # 成交量配合
@@ -147,8 +162,11 @@ class SignalEngine:
         }
 
     def check_trap_long(self):
-        """陷阱诱空做多 - 修复：放宽条件"""
-        if len(self.df) < 5:
+        """陷阱诱空做多 - 修复：放宽条件，添加边界检查"""
+        if len(self.df) < 5:  # 至少需要5根K线
+            return None
+        # 修复：检查是否有前一K线
+        if len(self.df) < 2:
             return None
         recent_low = self._get_recent_swing_low(5)
         if abs(self.latest["low"] - recent_low) / recent_low > 0.015:  # 放宽到1.5%，原1%
@@ -269,8 +287,11 @@ class SignalEngine:
         }
 
     def check_trap_short(self):
-        """陷阱诱多做空 - 修复：放宽条件"""
-        if len(self.df) < 5:
+        """陷阱诱多做空 - 修复：放宽条件，添加边界检查"""
+        if len(self.df) < 5:  # 至少需要5根K线
+            return None
+        # 修复：检查是否有前一K线
+        if len(self.df) < 2:
             return None
         recent_high = self._get_recent_swing_high(5)
         if abs(self.latest["high"] - recent_high) / recent_high > 0.015:  # 放宽到1.5%，原1%

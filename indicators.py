@@ -19,8 +19,9 @@ def calculate_macd(df):
 def calculate_volume_metrics(df):
     # 成交量指标 - 修复：处理NaN和除以0
     df["volume_ma20"] = df["volume"].rolling(window=VOLUME_MA_PERIOD, min_periods=1).mean()
-    # 避免除以0，使用clip限制最小值
-    df["volume_ratio"] = df["volume"] / df["volume_ma20"].clip(lower=df["volume"].max() * 0.001)
+    # 修复：避免除以0，使用绝对最小值而非相对比例
+    min_volume = max(df["volume_ma20"].max() * 0.001, 1e-10)  # 确保最小值不为0
+    df["volume_ratio"] = df["volume"] / df["volume_ma20"].clip(lower=min_volume)
     df["volume_ratio"] = df["volume_ratio"].fillna(1.0)  # 填充NaN为1.0
     conditions = [
         df["volume_ratio"] >= VOLUME_RATIO_PANIC,
@@ -34,8 +35,9 @@ def calculate_volume_metrics(df):
     return df
 
 def find_swing_points(df, window=SWING_WINDOW):
-    """波段高低点检测 - 修复：使用inplace重置索引确保在原DataFrame上操作"""
-    df.reset_index(drop=True, inplace=True)  # 修复：使用inplace=True直接修改原DataFrame
+    """波段高低点检测 - 修复：返回新DataFrame避免修改原始数据"""
+    df = df.copy()  # 修复：创建副本避免修改原始DataFrame
+    df = df.reset_index(drop=True)  # 重置索引确保位置索引正确
     df["swing_high"] = False
     df["swing_low"] = False
     for i in range(window, len(df) - window):
