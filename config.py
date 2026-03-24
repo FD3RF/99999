@@ -26,6 +26,7 @@ VOLUME_RATIO_SHRINK_60 = 0.90       # 一般缩量 < 90%（放宽，原0.7太严
 
 # K线形态参数
 LONG_SHADOW_RATIO = 2.0        # 影线长度 ≥ 实体2倍
+DOJI_RATIO = 0.1               # 十字星实体 ≤ 平均实体10%
 
 # 盈亏比要求
 MIN_RISK_REWARD_RATIO = 1.2         # 至少盈亏比1:1.2（放宽，原1.5太严导致无信号）
